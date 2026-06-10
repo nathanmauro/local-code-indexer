@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "local-code-indexer"
+version = "0.1.0.dev0"
+description = "Fully local code indexing and MCP retrieval for private repositories."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Nathan Mauro" }]
+keywords = ["code-search", "mcp", "sqlite", "fts5", "sqlite-vec", "ollama"]
+dependencies = [
+    "anyio>=4.0",
+    "mcp>=1.10",
+    "pathspec>=0.12",
+    "sqlite-vec>=0.1.9",
+    "tree-sitter-language-pack>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+local-code-indexer = "local_code_indexer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/local_code_indexer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+ignore = ["E501"]
