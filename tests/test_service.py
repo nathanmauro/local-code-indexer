@@ -275,3 +275,57 @@ def test_remove_repo_deletes_everything(tmp_path: Path) -> None:
     assert service.search("run") == []
     with pytest.raises(ValueError, match="unknown repo"):
         service.remove_repo("demo")
+
+
+class BatchEmbedder:
+    def __init__(self):
+        self.batches: list[list[str]] = []
+
+    def embed(self, text: str) -> list[float]:
+        return [1.0, 0.5]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float] | None]:
+        self.batches.append(list(texts))
+        return [[1.0, 0.5] for _ in texts]
+
+
+def test_index_repo_batches_embeddings_per_file_capped_at_64(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    # 4600 plain lines chunk into 66 windows (80 lines, 10 overlap), forcing a
+    # 64-chunk batch plus a 2-chunk remainder for one file.
+    write(repo / "big.txt", "\n".join(f"value {i} of the data" for i in range(4600)) + "\n")
+    write(repo / "small.py", "def run():\n    return 'ok'\n")
+
+    embedder = BatchEmbedder()
+    service = IndexService(tmp_path / "index.db", embedder=embedder)
+    service.init()
+    result = service.index_repo(repo, name="demo")
+
+    assert result["embedded_chunks"] == result["indexed_chunks"]
+    assert result["embedding_failures"] == 0
+    assert sum(len(batch) for batch in embedder.batches) == result["indexed_chunks"]
+    assert all(len(batch) <= 64 for batch in embedder.batches)
+    assert any(len(batch) == 64 for batch in embedder.batches)
+
+
+class RaisingBatchEmbedder:
+    def embed(self, text: str) -> list[float]:
+        raise RuntimeError("embedding service died")
+
+    def embed_batch(self, texts: list[str]) -> list[list[float] | None]:
+        raise RuntimeError("embedding service died")
+
+
+def test_batch_embedding_failure_counts_every_chunk_and_keeps_indexing(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+    write(repo / "other.py", "def stop():\n    return 'done'\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=RaisingBatchEmbedder())
+    service.init()
+    result = service.index_repo(repo, name="demo")
+
+    assert result["indexed_files"] == 2
+    assert result["indexed_chunks"] >= 2
+    assert result["embedded_chunks"] == 0
+    assert result["embedding_failures"] == result["indexed_chunks"]

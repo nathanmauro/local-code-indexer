@@ -20,3 +20,15 @@ def embeddings_disabled() -> bool:
         "yes",
         "on",
     }
+
+
+def embed_url_from_env() -> str:
+    return os.environ.get("LOCAL_CODE_INDEXER_EMBED_URL", "http://127.0.0.1:11434")
+
+
+def embed_model_from_env() -> str:
+    return os.environ.get("LOCAL_CODE_INDEXER_EMBED_MODEL", "nomic-embed-text")
+
+
+def embed_api_from_env() -> str:
+    return os.environ.get("LOCAL_CODE_INDEXER_EMBED_API", "ollama")

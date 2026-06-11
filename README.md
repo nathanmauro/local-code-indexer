@@ -31,8 +31,13 @@ The index run reports `skipped_files` (unreadable or non-UTF-8 files), `embedded
 The default database path is `~/.local/share/local-code-indexer/index.db`. Override it with
 `LOCAL_CODE_INDEXER_DB_PATH=/path/to/index.db`.
 
-Embeddings default to Ollama at `http://127.0.0.1:11434` with `nomic-embed-text`. Set
-`LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS=1` for lexical/path/symbol-only indexing and search.
+Embeddings default to Ollama at `http://127.0.0.1:11434` with `nomic-embed-text`. Override the
+backend with `LOCAL_CODE_INDEXER_EMBED_URL` (base URL), `LOCAL_CODE_INDEXER_EMBED_MODEL` (model
+name), and `LOCAL_CODE_INDEXER_EMBED_API` (`ollama`, the default, or `openai` for any
+OpenAI-compatible local server such as LM Studio or llama.cpp's llama-server, which is called via
+`/v1/embeddings`). The embedding URL must point to a loopback host (`127.0.0.1`, `localhost`, or
+`::1`) regardless of backend. Set `LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS=1` for
+lexical/path/symbol-only indexing and search.
 
 ## MCP Tools
 

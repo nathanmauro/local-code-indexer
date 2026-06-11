@@ -27,6 +27,8 @@ except Exception:  # pragma: no cover - exercised when dependency is absent
 
 TOKEN_RE = re.compile(r"[A-Za-z_][\w$./-]*")
 
+EMBED_BATCH_SIZE = 64
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
@@ -220,8 +222,9 @@ class IndexService:
                 # Embedding calls run between per-file commits, outside any write
                 # transaction, so the SQLite write lock is never held across HTTP.
                 embeddings: dict[str, list[float] | None] = {}
-                for chunk in chunks:
-                    embedding = embeddings[chunk.id] = self._embed_chunk(chunk.content)
+                vectors = self._embed_chunks([chunk.content for chunk in chunks])
+                for chunk, embedding in zip(chunks, vectors, strict=True):
+                    embeddings[chunk.id] = embedding
                     if embedding:
                         embedded_chunks += 1
                     elif self.embedder is not None:
@@ -421,6 +424,26 @@ class IndexService:
                 "INSERT INTO symbols (repo_id, file_id, chunk_id, symbol, path, line) VALUES (?, ?, ?, ?, ?, ?)",
                 (repo_id, file_id, chunk_id, symbol, path, line),
             )
+
+    def _embed_chunks(self, contents: list[str]) -> list[list[float] | None]:
+        if self.embedder is None or not contents:
+            return [None] * len(contents)
+        embed_batch = getattr(self.embedder, "embed_batch", None)
+        if embed_batch is None:
+            return [self._embed_chunk(content) for content in contents]
+        results: list[list[float] | None] = []
+        for start in range(0, len(contents), EMBED_BATCH_SIZE):
+            batch = contents[start : start + EMBED_BATCH_SIZE]
+            try:
+                vectors = embed_batch(batch)
+                if len(vectors) != len(batch):
+                    raise RuntimeError("embed_batch returned a mismatched number of vectors")
+            except Exception:
+                vectors = [None] * len(batch)
+            results.extend(
+                [float(value) for value in vector] if vector else None for vector in vectors
+            )
+        return results
 
     def _embed_chunk(self, content: str) -> list[float] | None:
         if self.embedder is None:
