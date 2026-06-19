@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from local_code_indexer.service import IndexService
+from local_code_indexer.service import EMBED_BREAKER_CONSECUTIVE_FAILURES, IndexService
 
 
 class FakeEmbedder:
@@ -461,6 +461,18 @@ class RaisingBatchEmbedder:
         raise RuntimeError("embedding service died")
 
 
+class CountingFailingBatchEmbedder:
+    def __init__(self):
+        self.batches: list[list[str]] = []
+
+    def embed(self, text: str) -> list[float]:
+        raise RuntimeError("embedding service died")
+
+    def embed_batch(self, texts: list[str]) -> list[list[float] | None]:
+        self.batches.append(list(texts))
+        raise RuntimeError("embedding service died")
+
+
 def test_batch_embedding_failure_counts_every_chunk_and_keeps_indexing(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "app.py", "def run():\n    return 'ok'\n")
@@ -474,3 +486,44 @@ def test_batch_embedding_failure_counts_every_chunk_and_keeps_indexing(tmp_path:
     assert result["indexed_chunks"] >= 2
     assert result["embedded_chunks"] == 0
     assert result["embedding_failures"] == result["indexed_chunks"]
+
+
+def test_embedding_breaker_stops_calls_after_consecutive_failed_batches(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    assert EMBED_BREAKER_CONSECUTIVE_FAILURES >= 5
+    file_count = EMBED_BREAKER_CONSECUTIVE_FAILURES + 3
+    for index in range(file_count):
+        write(
+            repo / f"file_{index}.py",
+            f"def breaker_sentinel_{index}():\n    return {index}\n",
+        )
+
+    embedder = CountingFailingBatchEmbedder()
+    service = IndexService(tmp_path / "index.db", embedder=embedder)
+    service.init()
+    result = service.index_repo(repo, name="demo")
+
+    assert result["indexed_files"] == file_count
+    assert len(embedder.batches) == EMBED_BREAKER_CONSECUTIVE_FAILURES
+    assert result["embedding_failures"] == sum(len(batch) for batch in embedder.batches)
+    assert result["degraded"] is True
+    assert len(service.list_files(repo="demo")) == file_count
+    lexical_hits = service.search("breaker_sentinel_7", repo="demo", mode="lexical")
+    assert lexical_hits[0]["path"] == "file_7.py"
+    status = service.status()
+    assert status["degraded"] is True
+    assert status["embedded_chunks"] == 0
+    assert status["chunks"] == result["indexed_chunks"]
+
+
+def test_disabled_embeddings_report_not_degraded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS", "1")
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+
+    service = IndexService(tmp_path / "index.db")
+    service.init()
+    result = service.index_repo(repo, name="demo")
+
+    assert result["degraded"] is False
+    assert service.status()["degraded"] is False

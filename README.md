@@ -28,7 +28,11 @@ renames the repo in place. `remove <name>` deletes a repo and all of its indexed
 Indexing is incremental: files with an unchanged content hash are skipped when their existing
 embeddings still match the current vector dimension and stored model name. The index run reports
 `unchanged_files`, `skipped_files` (unreadable or non-UTF-8 files), `embedded_chunks`, and
-`embedding_failures` so a dead embedding service is visible rather than silent.
+`embedding_failures` so a dead embedding service is visible rather than silent. If five consecutive
+embedding batches fail during one run, a circuit breaker stops calling the embedder for the
+remainder of that run; remaining files are still indexed for lexical/path/symbol search with empty
+embeddings, breaker-skipped chunks are not counted as `embedding_failures`, and the result includes
+`degraded: true`.
 
 The default database path is `~/.local/share/local-code-indexer/index.db`. Override it with
 `LOCAL_CODE_INDEXER_DB_PATH=/path/to/index.db`.
@@ -39,7 +43,9 @@ name), and `LOCAL_CODE_INDEXER_EMBED_API` (`ollama`, the default, or `openai` fo
 OpenAI-compatible local server such as LM Studio or llama.cpp's llama-server, which is called via
 `/v1/embeddings`). The embedding URL must point to a loopback host (`127.0.0.1`, `localhost`, or
 `::1`) regardless of backend. Set `LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS=1` for
-lexical/path/symbol-only indexing and search.
+lexical/path/symbol-only indexing and search. `status` reports `degraded: true` when embeddings are
+enabled but stored coverage is incomplete (`embedded_chunks < chunks`); disabled embeddings always
+report `degraded: false`.
 
 ## MCP Tools
 

@@ -10,6 +10,7 @@ import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,15 @@ except Exception:  # pragma: no cover - exercised when dependency is absent
 TOKEN_RE = re.compile(r"[A-Za-z_][\w$./-]*")
 
 EMBED_BATCH_SIZE = 64
+EMBED_BREAKER_CONSECUTIVE_FAILURES = 5
+
+
+@dataclass(frozen=True)
+class _EmbedChunksResult:
+    vectors: list[list[float] | None]
+    attempted: list[bool]
+    consecutive_failed_batches: int
+    breaker_tripped: bool
 
 
 def _utc_now() -> str:
@@ -202,6 +212,8 @@ class IndexService:
         unchanged_files = 0
         embedded_chunks = 0
         embedding_failures = 0
+        consecutive_failed_embed_batches = 0
+        degraded = False
 
         conn = self._connect()
         try:
@@ -241,12 +253,27 @@ class IndexService:
                 # Embedding calls run between per-file commits, outside any write
                 # transaction, so the SQLite write lock is never held across HTTP.
                 embeddings: dict[str, list[float] | None] = {}
-                vectors = self._embed_chunks([chunk.content for chunk in chunks])
-                for chunk, embedding in zip(chunks, vectors, strict=True):
+                if degraded:
+                    embed_result = _EmbedChunksResult(
+                        vectors=[None] * len(chunks),
+                        attempted=[False] * len(chunks),
+                        consecutive_failed_batches=consecutive_failed_embed_batches,
+                        breaker_tripped=True,
+                    )
+                else:
+                    embed_result = self._embed_chunks_for_run(
+                        [chunk.content for chunk in chunks],
+                        consecutive_failed_batches=consecutive_failed_embed_batches,
+                    )
+                    consecutive_failed_embed_batches = embed_result.consecutive_failed_batches
+                    degraded = embed_result.breaker_tripped
+                for chunk, embedding, attempted in zip(
+                    chunks, embed_result.vectors, embed_result.attempted, strict=True
+                ):
                     embeddings[chunk.id] = embedding
                     if embedding:
                         embedded_chunks += 1
-                    elif self.embedder is not None:
+                    elif attempted:
                         embedding_failures += 1
                 file_id = self._upsert_file(
                     conn,
@@ -289,6 +316,7 @@ class IndexService:
             "deleted_files": deleted_files,
             "embedded_chunks": embedded_chunks,
             "embedding_failures": embedding_failures,
+            "degraded": degraded,
             "db_path": str(self.db_path),
         }
 
@@ -525,14 +553,33 @@ class IndexService:
             )
 
     def _embed_chunks(self, contents: list[str]) -> list[list[float] | None]:
+        return self._embed_chunks_for_run(contents).vectors
+
+    def _embed_chunks_for_run(
+        self,
+        contents: list[str],
+        consecutive_failed_batches: int = 0,
+    ) -> _EmbedChunksResult:
         if self.embedder is None or not contents:
-            return [None] * len(contents)
+            return _EmbedChunksResult(
+                vectors=[None] * len(contents),
+                attempted=[False] * len(contents),
+                consecutive_failed_batches=consecutive_failed_batches,
+                breaker_tripped=False,
+            )
         embed_batch = getattr(self.embedder, "embed_batch", None)
         if embed_batch is None:
-            return [self._embed_chunk(content) for content in contents]
+            return self._embed_chunks_individually(contents, consecutive_failed_batches)
         results: list[list[float] | None] = []
+        attempted: list[bool] = []
+        breaker_tripped = False
         for start in range(0, len(contents), EMBED_BATCH_SIZE):
             batch = contents[start : start + EMBED_BATCH_SIZE]
+            if consecutive_failed_batches >= EMBED_BREAKER_CONSECUTIVE_FAILURES:
+                results.extend([None] * len(batch))
+                attempted.extend([False] * len(batch))
+                breaker_tripped = True
+                continue
             try:
                 vectors = embed_batch(batch)
                 if len(vectors) != len(batch):
@@ -542,7 +589,53 @@ class IndexService:
             results.extend(
                 [float(value) for value in vector] if vector else None for vector in vectors
             )
-        return results
+            attempted.extend([True] * len(batch))
+            if all(vector is None for vector in results[-len(batch) :]):
+                consecutive_failed_batches += 1
+                breaker_tripped = (
+                    consecutive_failed_batches >= EMBED_BREAKER_CONSECUTIVE_FAILURES
+                )
+            else:
+                consecutive_failed_batches = 0
+        return _EmbedChunksResult(
+            vectors=results,
+            attempted=attempted,
+            consecutive_failed_batches=consecutive_failed_batches,
+            breaker_tripped=breaker_tripped,
+        )
+
+    def _embed_chunks_individually(
+        self,
+        contents: list[str],
+        consecutive_failed_batches: int,
+    ) -> _EmbedChunksResult:
+        results: list[list[float] | None] = []
+        attempted: list[bool] = []
+        breaker_tripped = False
+        for content in contents:
+            if consecutive_failed_batches >= EMBED_BREAKER_CONSECUTIVE_FAILURES:
+                results.append(None)
+                attempted.append(False)
+                breaker_tripped = True
+                continue
+            embedding = self._embed_chunk(content)
+            if not embedding:
+                embedding = None
+            results.append(embedding)
+            attempted.append(True)
+            if embedding is None:
+                consecutive_failed_batches += 1
+                breaker_tripped = (
+                    consecutive_failed_batches >= EMBED_BREAKER_CONSECUTIVE_FAILURES
+                )
+            else:
+                consecutive_failed_batches = 0
+        return _EmbedChunksResult(
+            vectors=results,
+            attempted=attempted,
+            consecutive_failed_batches=consecutive_failed_batches,
+            breaker_tripped=breaker_tripped,
+        )
 
     def _embed_chunk(self, content: str) -> list[float] | None:
         if self.embedder is None:
@@ -1019,6 +1112,7 @@ class IndexService:
             ).fetchone()["count"]
             vector_dim = self._vector_dim(conn)
             embed_model = self._embed_model(conn)
+            degraded = self.embedder is not None and int(embedded_chunks) < int(chunks)
         return {
             "db_path": str(self.db_path),
             "repos": int(repos),
@@ -1029,4 +1123,5 @@ class IndexService:
             "vector_dim": vector_dim,
             "embed_model": embed_model,
             "embeddings": "enabled" if self.embedder is not None else "disabled",
+            "degraded": degraded,
         }
