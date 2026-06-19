@@ -221,8 +221,10 @@ class IndexService:
             conn.commit()
             run_start_vector_dim = self._vector_dim(conn)
             run_start_embed_model = self._embed_model(conn)
+            run_start_embed_backend = self._embed_backend(conn)
             embedder_dim = self._embedder_dim()
             embedder_model = self._embedder_model()
+            embedder_backend = self._embedder_backend()
             for file_path in iter_indexable_files(repo_path, matcher):
                 rel_path = file_path.relative_to(repo_path).as_posix()
                 # Keep the previously indexed version if this file can't be read now.
@@ -246,6 +248,8 @@ class IndexService:
                     embedder_dim,
                     run_start_embed_model,
                     embedder_model,
+                    run_start_embed_backend,
+                    embedder_backend,
                 ):
                     unchanged_files += 1
                     continue
@@ -299,6 +303,8 @@ class IndexService:
             deleted_files = self._delete_missing_files(conn, repo_id, seen_paths)
             if embedder_model is not None:
                 self._set_embed_model(conn, embedder_model)
+            if embedder_backend is not None:
+                self._set_embed_backend(conn, embedder_backend)
             conn.commit()
         except BaseException:
             conn.rollback()
@@ -412,6 +418,8 @@ class IndexService:
         embedder_dim: int | None,
         run_start_embed_model: str | None,
         embedder_model: str | None,
+        run_start_embed_backend: str | None,
+        embedder_backend: str | None,
     ) -> bool:
         if existing_file["file_hash"] != file_hash:
             return False
@@ -423,17 +431,28 @@ class IndexService:
             return text == ""
         if self.embedder is None:
             return True
-        if (
-            run_start_vector_dim is None
-            or embedder_dim is None
-            or run_start_vector_dim != embedder_dim
-        ):
-            return False
+        chunk_dims = [self._embedding_json_dim(row["embedding_json"]) for row in chunk_rows]
         if self._embed_model_changed(run_start_embed_model, embedder_model):
             return False
-        return all(
-            self._embedding_json_dim(row["embedding_json"]) == embedder_dim for row in chunk_rows
-        )
+        if self._embed_backend_changed(run_start_embed_backend, embedder_backend):
+            return False
+        if run_start_vector_dim is not None and embedder_dim is not None:
+            if run_start_vector_dim != embedder_dim:
+                return False
+        effective_dim = embedder_dim
+        if effective_dim is None:
+            effective_dim = run_start_vector_dim
+        if effective_dim is None:
+            stored_dims = set(chunk_dims)
+            if None in stored_dims or len(stored_dims) != 1:
+                return False
+            effective_dim = stored_dims.pop()
+        if (
+            effective_dim is None
+            or any(chunk_dim != effective_dim for chunk_dim in chunk_dims)
+        ):
+            return False
+        return True
 
     def _embedder_dim(self) -> int | None:
         if self.embedder is None:
@@ -457,8 +476,24 @@ class IndexService:
         model_name = str(model).strip()
         return model_name or None
 
+    def _embedder_backend(self) -> str | None:
+        model = self._embedder_model()
+        if model is None:
+            return None
+        api = getattr(self.embedder, "api", None)
+        base_url = getattr(self.embedder, "base_url", None)
+        if api is None and base_url is None:
+            return model
+        return json.dumps(
+            {"api": str(api or ""), "base_url": str(base_url or ""), "model": model},
+            sort_keys=True,
+        )
+
     def _embed_model_changed(self, stored_model: str | None, current_model: str | None) -> bool:
         return stored_model is not None and current_model is not None and stored_model != current_model
+
+    def _embed_backend_changed(self, stored_backend: str | None, current_backend: str | None) -> bool:
+        return current_backend is not None and stored_backend != current_backend
 
     def _embedding_json_dim(self, embedding_json: str) -> int | None:
         if not embedding_json:
@@ -676,24 +711,32 @@ class IndexService:
             (model,),
         )
 
+    def _embed_backend(self, conn: sqlite3.Connection) -> str | None:
+        row = conn.execute("SELECT value FROM settings WHERE key = 'embed_backend'").fetchone()
+        if row is None:
+            return None
+        value = str(row["value"]).strip()
+        return value or None
+
+    def _set_embed_backend(self, conn: sqlite3.Connection, backend: str) -> None:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('embed_backend', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (backend,),
+        )
+
     def _ensure_vector_table_for_write(self, conn: sqlite3.Connection, dim: int) -> bool:
         if not self._sqlite_vec_loaded or dim <= 0:
             return False
         existing_dim = self._vector_dim(conn)
-        existing_model = self._embed_model(conn)
-        current_model = self._embedder_model()
-        model_changed = self._embed_model_changed(existing_model, current_model)
-        if (existing_dim is not None and existing_dim != dim) or model_changed:
-            # The embedding model changed dimension or identity; drop old vectors
-            # and let the in-progress reindex repopulate comparable rows.
+        if existing_dim is not None and existing_dim != dim:
+            # The embedding dimension changed; drop old vectors and let the
+            # in-progress reindex repopulate comparable rows.
             conn.execute("DROP TABLE IF EXISTS chunk_vectors")
             conn.execute("DELETE FROM chunk_vector_map")
             existing_dim = None
         conn.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(embedding float[{dim}])")
         if existing_dim is None:
             self._set_vector_dim(conn, dim)
-        if current_model is not None:
-            self._set_embed_model(conn, current_model)
         return True
 
     def _vector_table_readable(self, conn: sqlite3.Connection, dim: int) -> bool:

@@ -78,7 +78,12 @@ class LocalEmbedder:
         try:
             if self.api == "openai":
                 payload = self._post_json("/v1/embeddings", {"model": self.model, "input": texts})
-                vectors = [item["embedding"] for item in payload["data"]]
+                data = payload["data"]
+                if all("index" in item for item in data):
+                    data = sorted(data, key=lambda item: int(item["index"]))
+                    if [int(item["index"]) for item in data] != list(range(len(texts))):
+                        return [None] * len(texts)
+                vectors = [item["embedding"] for item in data]
             else:
                 payload = self._post_json(
                     "/api/embed",

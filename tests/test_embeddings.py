@@ -178,6 +178,24 @@ def test_openai_api_embed_batch_uses_v1_embeddings_shape(monkeypatch: pytest.Mon
     assert requests[0]["body"] == {"model": "nomic-embed-text", "input": ["one", "two"]}
 
 
+def test_openai_api_embed_batch_honors_response_indexes(monkeypatch: pytest.MonkeyPatch) -> None:
+    capture_urlopen(
+        monkeypatch,
+        {
+            "data": [
+                {"index": 1, "embedding": [0.3, 0.4]},
+                {"index": 0, "embedding": [0.1, 0.2]},
+            ]
+        },
+    )
+
+    vectors = LocalEmbedder(base_url="http://localhost:1234", api="openai").embed_batch(
+        ["one", "two"]
+    )
+
+    assert vectors == [[0.1, 0.2], [0.3, 0.4]]
+
+
 def test_embedder_rejects_unknown_api() -> None:
     with pytest.raises(ValueError, match="api"):
         LocalEmbedder(api="bogus")

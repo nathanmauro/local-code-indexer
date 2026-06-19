@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import local_code_indexer.service as service_module
 from local_code_indexer.service import EMBED_BREAKER_CONSECUTIVE_FAILURES, IndexService
 
 
@@ -309,6 +310,21 @@ class ModelEmbedder:
         return [self.marker, 0.0, 0.0, 0.0]
 
 
+class BackendEmbedder:
+    dim = 4
+    model = "shared-model"
+
+    def __init__(self, api: str, base_url: str, marker: float):
+        self.api = api
+        self.base_url = base_url
+        self.marker = marker
+        self.calls: list[str] = []
+
+    def embed(self, text: str) -> list[float]:
+        self.calls.append(text)
+        return [self.marker, 0.0, 0.0, 0.0]
+
+
 def test_index_repo_persists_embed_model_and_status_reports_it(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "app.py", "def run():\n    return 'ok'\n")
@@ -359,6 +375,92 @@ def test_same_dimension_model_change_forces_reindex(tmp_path: Path) -> None:
         row = conn.execute("SELECT embedding_json FROM chunks").fetchone()
     assert json.loads(row[0])[0] == 2.0
     assert second.status()["embed_model"] == "model-b"
+
+
+def test_same_model_backend_change_forces_reindex(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+
+    first = IndexService(
+        tmp_path / "index.db",
+        embedder=BackendEmbedder("ollama", "http://127.0.0.1:11434", 1.0),
+    )
+    first.init()
+    first.index_repo(repo, name="demo")
+    # Databases created before backend identity tracking have only embed_model.
+    with sqlite3.connect(tmp_path / "index.db") as conn:
+        conn.execute("DELETE FROM settings WHERE key = 'embed_backend'")
+
+    second_embedder = BackendEmbedder("openai", "http://localhost:1234", 2.0)
+    second = IndexService(tmp_path / "index.db", embedder=second_embedder)
+    result = second.index_repo(repo, name="demo")
+
+    assert result["indexed_files"] == 1
+    assert result["unchanged_files"] == 0
+    assert len(second_embedder.calls) == result["indexed_chunks"]
+    with sqlite3.connect(tmp_path / "index.db") as conn:
+        row = conn.execute("SELECT embedding_json FROM chunks").fetchone()
+    assert json.loads(row[0])[0] == 2.0
+
+
+def test_interrupted_same_dimension_model_change_retries_stale_files(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "a.py", "def alpha():\n    return 1\n")
+    write(repo / "b.py", "def beta():\n    return 2\n")
+
+    first = IndexService(tmp_path / "index.db", embedder=ModelEmbedder("model-a", 1.0))
+    first.init()
+    first.index_repo(repo, name="demo")
+
+    second = IndexService(tmp_path / "index.db", embedder=ModelEmbedder("model-b", 2.0))
+    real_upsert_file = second._upsert_file
+    upserted: list[str] = []
+
+    def interrupt_after_first_file(*args, **kwargs):
+        rel_path = args[2]
+        if upserted:
+            raise RuntimeError("stop after first committed file")
+        upserted.append(rel_path)
+        return real_upsert_file(*args, **kwargs)
+
+    second._upsert_file = interrupt_after_first_file
+    with pytest.raises(RuntimeError, match="stop after first"):
+        second.index_repo(repo, name="demo")
+
+    retry_embedder = ModelEmbedder("model-b", 2.0)
+    retry = IndexService(tmp_path / "index.db", embedder=retry_embedder)
+    result = retry.index_repo(repo, name="demo")
+
+    assert result["indexed_files"] == 2
+    assert result["unchanged_files"] == 0
+    assert len(retry_embedder.calls) == result["indexed_chunks"]
+    with sqlite3.connect(tmp_path / "index.db") as conn:
+        markers = [
+            json.loads(row[0])[0]
+            for row in conn.execute("SELECT embedding_json FROM chunks ORDER BY path")
+        ]
+    assert markers == [2.0, 2.0]
+
+
+def test_unchanged_files_skip_when_sqlite_vec_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(service_module, "sqlite_vec", None)
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+
+    embedder = ModelEmbedder("model-a", 1.0)
+    service = IndexService(tmp_path / "index.db", embedder=embedder)
+    service.init()
+    service.index_repo(repo, name="demo")
+    calls_after_first = len(embedder.calls)
+
+    second = service.index_repo(repo, name="demo")
+
+    assert second["indexed_files"] == 0
+    assert second["unchanged_files"] == 1
+    assert len(embedder.calls) == calls_after_first
 
 
 def test_disabled_embeddings_leave_embed_model_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
