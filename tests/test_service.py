@@ -8,7 +8,11 @@ from local_code_indexer.service import IndexService
 class FakeEmbedder:
     dim = 4
 
+    def __init__(self):
+        self.calls: list[str] = []
+
     def embed(self, text: str) -> list[float]:
+        self.calls.append(text)
         lowered = text.lower()
         return [
             1.0 if any(term in lowered for term in ("auth", "login", "token")) else 0.0,
@@ -40,6 +44,7 @@ def test_index_repo_search_read_symbols_and_incremental_delete(tmp_path: Path) -
     indexed = service.index_repo(repo, name="demo")
 
     assert indexed["indexed_files"] == 3
+    assert indexed["unchanged_files"] == 0
     assert indexed["deleted_files"] == 0
 
     auth_results = service.search("login token flow", repo="demo", limit=3)
@@ -63,8 +68,81 @@ def test_index_repo_search_read_symbols_and_incremental_delete(tmp_path: Path) -
 
     (repo / "src/calendar.py").unlink()
     after_delete = service.index_repo(repo, name="demo")
+    assert after_delete["indexed_files"] == 0
+    assert after_delete["unchanged_files"] == 2
     assert after_delete["deleted_files"] == 1
     assert all(file["path"] != "src/calendar.py" for file in service.list_files(repo="demo"))
+
+
+def test_index_repo_skips_unchanged_files_without_reembedding(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/auth.py", "def login(token):\n    return token.strip()\n")
+    write(repo / "README.md", "# Demo\nSQLite FTS code index notes\n")
+
+    embedder = FakeEmbedder()
+    service = IndexService(tmp_path / "index.db", embedder=embedder)
+    service.init()
+    first = service.index_repo(repo, name="demo")
+    calls_after_first = len(embedder.calls)
+
+    second = service.index_repo(repo, name="demo")
+
+    assert first["indexed_files"] == 2
+    assert first["unchanged_files"] == 0
+    assert second["indexed_files"] == 0
+    assert second["indexed_chunks"] == 0
+    assert second["embedded_chunks"] == 0
+    assert second["unchanged_files"] == 2
+    assert len(embedder.calls) == calls_after_first
+    results = service.search("login token", repo="demo", mode="lexical", limit=3)
+    assert results[0]["path"] == "src/auth.py"
+    assert len(embedder.calls) == calls_after_first
+
+
+def test_index_repo_reindexes_only_modified_files(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/auth.py", "def login(token):\n    return token.strip()\n")
+    write(repo / "src/calendar.py", "def schedule_meeting(title):\n    return title.lower()\n")
+
+    embedder = FakeEmbedder()
+    service = IndexService(tmp_path / "index.db", embedder=embedder)
+    service.init()
+    service.index_repo(repo, name="demo")
+    calls_after_first = len(embedder.calls)
+
+    write(
+        repo / "src/auth.py",
+        "def login(token):\n    return token.strip()\n\n\ndef refresh_token(token):\n    return token\n",
+    )
+    result = service.index_repo(repo, name="demo")
+
+    assert result["indexed_files"] == 1
+    assert result["indexed_chunks"] == 1
+    assert result["embedded_chunks"] == 1
+    assert result["unchanged_files"] == 1
+    assert len(embedder.calls) == calls_after_first + 1
+    assert "refresh_token" in embedder.calls[-1]
+    assert service.search("refresh_token", repo="demo", mode="lexical")[0]["path"] == "src/auth.py"
+    assert service.search("schedule meeting", repo="demo", mode="lexical")[0]["path"] == "src/calendar.py"
+
+
+def test_index_repo_incremental_delete_still_purges_missing_files(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/auth.py", "def login(token):\n    return token.strip()\n")
+    write(repo / "src/calendar.py", "def schedule_meeting(title):\n    return title.lower()\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    (repo / "src/calendar.py").unlink()
+    result = service.index_repo(repo, name="demo")
+
+    assert result["indexed_files"] == 0
+    assert result["unchanged_files"] == 1
+    assert result["deleted_files"] == 1
+    assert [file["path"] for file in service.list_files(repo="demo")] == ["src/auth.py"]
+    assert service.search("schedule meeting", repo="demo", mode="lexical") == []
 
 
 def test_symbols_table_uses_definition_lines(tmp_path: Path) -> None:

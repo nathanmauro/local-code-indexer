@@ -11,6 +11,10 @@ from . import config
 # Asks Ollama to keep the model resident between requests so bulk reindex
 # passes don't pay a cold model load each time.
 OLLAMA_KEEP_ALIVE = "10m"
+KNOWN_MODEL_DIMS = {
+    "nomic-embed-text": 768,
+    "nomic-embed-text:latest": 768,
+}
 
 
 class LocalEmbedder:
@@ -27,6 +31,7 @@ class LocalEmbedder:
         self.model = model or config.embed_model_from_env()
         self.timeout = timeout
         self.api = api or config.embed_api_from_env()
+        self.dim = KNOWN_MODEL_DIMS.get(self.model)
         if self.api not in {"ollama", "openai"}:
             raise ValueError(f"Unsupported embedding api: {self.api!r} (use 'ollama' or 'openai')")
 

@@ -199,6 +199,7 @@ class IndexService:
         indexed_files = 0
         indexed_chunks = 0
         skipped_files = 0
+        unchanged_files = 0
         embedded_chunks = 0
         embedding_failures = 0
 
@@ -206,6 +207,8 @@ class IndexService:
         try:
             repo_id, repo_name = self._resolve_repo(conn, name, repo_path, now)
             conn.commit()
+            run_start_vector_dim = self._vector_dim(conn)
+            embedder_dim = self._embedder_dim()
             for file_path in iter_indexable_files(repo_path, matcher):
                 rel_path = file_path.relative_to(repo_path).as_posix()
                 # Keep the previously indexed version if this file can't be read now.
@@ -218,6 +221,18 @@ class IndexService:
                     skipped_files += 1
                     continue
                 file_hash = _sha256_bytes(data)
+                existing_file = self._existing_file(conn, repo_id, rel_path)
+                # Same-dimension backend/model swaps are intentionally not detected; ADR-0001 requires a full reindex for those.
+                if existing_file is not None and self._can_skip_unchanged_file(
+                    conn,
+                    existing_file,
+                    file_hash,
+                    text,
+                    run_start_vector_dim,
+                    embedder_dim,
+                ):
+                    unchanged_files += 1
+                    continue
                 chunks = chunk_file_text(repo_name, rel_path, text)
                 # Embedding calls run between per-file commits, outside any write
                 # transaction, so the SQLite write lock is never held across HTTP.
@@ -264,6 +279,7 @@ class IndexService:
             "indexed_files": indexed_files,
             "indexed_chunks": indexed_chunks,
             "skipped_files": skipped_files,
+            "unchanged_files": unchanged_files,
             "deleted_files": deleted_files,
             "embedded_chunks": embedded_chunks,
             "embedding_failures": embedding_failures,
@@ -343,6 +359,67 @@ class IndexService:
             (repo_id, rel_path),
         ).fetchone()
         return int(row["id"])
+
+    def _existing_file(
+        self, conn: sqlite3.Connection, repo_id: int, rel_path: str
+    ) -> sqlite3.Row | None:
+        return conn.execute(
+            "SELECT id, file_hash FROM files WHERE repo_id = ? AND path = ?",
+            (repo_id, rel_path),
+        ).fetchone()
+
+    def _can_skip_unchanged_file(
+        self,
+        conn: sqlite3.Connection,
+        existing_file: sqlite3.Row,
+        file_hash: str,
+        text: str,
+        run_start_vector_dim: int | None,
+        embedder_dim: int | None,
+    ) -> bool:
+        if existing_file["file_hash"] != file_hash:
+            return False
+        chunk_rows = conn.execute(
+            "SELECT embedding_json FROM chunks WHERE file_id = ?",
+            (int(existing_file["id"]),),
+        ).fetchall()
+        if not chunk_rows:
+            return text == ""
+        if self.embedder is None:
+            return True
+        if (
+            run_start_vector_dim is None
+            or embedder_dim is None
+            or run_start_vector_dim != embedder_dim
+        ):
+            return False
+        return all(
+            self._embedding_json_dim(row["embedding_json"]) == embedder_dim for row in chunk_rows
+        )
+
+    def _embedder_dim(self) -> int | None:
+        if self.embedder is None:
+            return None
+        dim = getattr(self.embedder, "dim", None)
+        if callable(dim):
+            dim = dim()
+        if dim is None:
+            return None
+        try:
+            return int(dim)
+        except (TypeError, ValueError):
+            return None
+
+    def _embedding_json_dim(self, embedding_json: str) -> int | None:
+        if not embedding_json:
+            return None
+        try:
+            embedding = json.loads(embedding_json)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(embedding, list):
+            return None
+        return len(embedding)
 
     def _delete_chunks_for_file(self, conn: sqlite3.Connection, file_id: int) -> None:
         chunk_ids = [
