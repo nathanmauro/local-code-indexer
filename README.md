@@ -14,6 +14,7 @@ local-code-indexer index <repo_path> [--name NAME]
 local-code-indexer watch <repo_path> [--name NAME] [--interval SECONDS]
 local-code-indexer search <query> [--repo NAME] [--limit N] [--mode hybrid|lexical|vector]
 local-code-indexer status [--repo NAME]
+local-code-indexer list-repos
 local-code-indexer remove <name>
 local-code-indexer mcp-config --client codex|claude
 local-code-indexer mcp
@@ -52,6 +53,7 @@ report `degraded: false`.
 
 - `code_index_search(query, repo?, mode?, limit?)`
 - `code_index_list_files(repo?, glob?, limit?)`
+- `code_index_list_repos()`
 - `code_index_read_file(repo, path, start_line?, end_line?)`
 - `code_index_symbols(repo?, query?, path?, limit?)`
 - `code_index_status(repo?)`

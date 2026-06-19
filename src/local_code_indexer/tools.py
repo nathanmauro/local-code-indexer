@@ -55,6 +55,12 @@ async def code_index_list_files(repo: str = "", glob: str = "", limit: int = 50)
 
 
 @mcp.tool()
+async def code_index_list_repos() -> str:
+    """List indexed repositories with file, chunk, and embedding counts."""
+    return await _run(lambda: _json(_service().list_repos()))
+
+
+@mcp.tool()
 async def code_index_read_file(
     repo: str,
     path: str,

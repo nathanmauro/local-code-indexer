@@ -799,6 +799,65 @@ class IndexService:
             return " AND r.name = ?", [repo]
         return "", []
 
+    def _repo_summaries(
+        self,
+        conn: sqlite3.Connection,
+        repo_filter: str = "",
+        repo_params: list[Any] | None = None,
+        *,
+        include_updated_at: bool = False,
+    ) -> list[dict]:
+        rows = conn.execute(
+            f"""
+            SELECT r.name, r.path, r.updated_at
+            FROM repos r
+            WHERE 1=1{repo_filter}
+            ORDER BY r.name
+            """,
+            repo_params or [],
+        ).fetchall()
+        summaries = []
+        for row in rows:
+            count_params = (row["name"],)
+            files = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM files f
+                JOIN repos r ON f.repo_id = r.id
+                WHERE r.name = ?
+                """,
+                count_params,
+            ).fetchone()["count"]
+            chunks = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM chunks c
+                JOIN repos r ON c.repo_id = r.id
+                WHERE r.name = ?
+                """,
+                count_params,
+            ).fetchone()["count"]
+            embedded_chunks = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM chunks c
+                JOIN repos r ON c.repo_id = r.id
+                WHERE c.embedding_json != '' AND r.name = ?
+                """,
+                count_params,
+            ).fetchone()["count"]
+            summary = {
+                "name": row["name"],
+                "path": row["path"],
+                "files": int(files),
+                "chunks": int(chunks),
+                "embedded_chunks": int(embedded_chunks),
+            }
+            if include_updated_at:
+                summary["updated_at"] = row["updated_at"]
+            summaries.append(summary)
+        return summaries
+
     def _base_candidate_sql(self, where: str = "") -> str:
         return f"""
             SELECT
@@ -1023,6 +1082,11 @@ class IndexService:
         ]
         return results[:limit]
 
+    def list_repos(self) -> list[dict]:
+        self.init()
+        with self._session() as conn:
+            return self._repo_summaries(conn, include_updated_at=True)
+
     def read_file(self, repo: str, path: str, start_line: int | None = None, end_line: int | None = None) -> dict:
         self.init()
         clean_path = Path(path).as_posix()
@@ -1156,6 +1220,7 @@ class IndexService:
             vector_dim = self._vector_dim(conn)
             embed_model = self._embed_model(conn)
             degraded = self.embedder is not None and int(embedded_chunks) < int(chunks)
+            per_repo = self._repo_summaries(conn, repo_filter, repo_params)
         return {
             "db_path": str(self.db_path),
             "repos": int(repos),
@@ -1167,4 +1232,5 @@ class IndexService:
             "embed_model": embed_model,
             "embeddings": "enabled" if self.embedder is not None else "disabled",
             "degraded": degraded,
+            "per_repo": per_repo,
         }

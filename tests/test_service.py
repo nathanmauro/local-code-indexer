@@ -191,6 +191,72 @@ def test_status_counts_repos_files_chunks_and_vector_state(tmp_path: Path) -> No
     assert status["sqlite_vec"] in {"loaded", "unavailable"}
 
 
+def test_list_repos_returns_zero_one_and_multiple_repo_summaries(tmp_path: Path) -> None:
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+
+    assert service.list_repos() == []
+
+    beta = tmp_path / "beta"
+    write(beta / "app.py", "def beta():\n    return 'sqlite fts'\n")
+    service.index_repo(beta, name="beta")
+
+    one_repo = service.list_repos()
+    assert len(one_repo) == 1
+    assert one_repo[0]["name"] == "beta"
+    assert one_repo[0]["path"] == str(beta.resolve())
+    assert one_repo[0]["files"] == 1
+    assert one_repo[0]["chunks"] >= 1
+    assert one_repo[0]["embedded_chunks"] == one_repo[0]["chunks"]
+    assert isinstance(one_repo[0]["updated_at"], str)
+    assert one_repo[0]["updated_at"]
+
+    alpha = tmp_path / "alpha"
+    write(alpha / "lib.py", "def alpha():\n    return 'auth token'\n")
+    write(alpha / "README.md", "# Alpha\n")
+    service.index_repo(alpha, name="alpha")
+
+    repos = service.list_repos()
+    assert [repo["name"] for repo in repos] == ["alpha", "beta"]
+    by_name = {repo["name"]: repo for repo in repos}
+    assert by_name["alpha"]["files"] == 2
+    assert by_name["alpha"]["chunks"] >= 2
+    assert by_name["alpha"]["embedded_chunks"] == by_name["alpha"]["chunks"]
+    assert by_name["beta"]["files"] == 1
+
+
+def test_status_includes_per_repo_breakdown_and_respects_repo_filter(tmp_path: Path) -> None:
+    alpha = tmp_path / "alpha"
+    write(alpha / "a.py", "def alpha():\n    return 'auth token'\n")
+    write(alpha / "docs.txt", "index sqlite fts\n")
+    beta = tmp_path / "beta"
+    write(beta / "b.py", "def beta():\n    return 'calendar meeting'\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(beta, name="beta")
+    service.index_repo(alpha, name="alpha")
+
+    status = service.status()
+
+    assert [repo["name"] for repo in status["per_repo"]] == ["alpha", "beta"]
+    by_name = {repo["name"]: repo for repo in status["per_repo"]}
+    assert by_name["alpha"]["path"] == str(alpha.resolve())
+    assert by_name["alpha"]["files"] == 2
+    assert by_name["alpha"]["chunks"] >= 2
+    assert by_name["alpha"]["embedded_chunks"] == by_name["alpha"]["chunks"]
+    assert by_name["beta"]["files"] == 1
+    assert by_name["beta"]["embedded_chunks"] == by_name["beta"]["chunks"]
+
+    filtered = service.status(repo="beta")
+
+    assert filtered["repos"] == 1
+    assert filtered["files"] == by_name["beta"]["files"]
+    assert filtered["chunks"] == by_name["beta"]["chunks"]
+    assert filtered["embedded_chunks"] == by_name["beta"]["embedded_chunks"]
+    assert filtered["per_repo"] == [by_name["beta"]]
+
+
 def test_index_rejects_missing_path(tmp_path: Path) -> None:
     service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
     service.init()

@@ -44,6 +44,31 @@ def test_index_remove_roundtrip(tmp_path: Path, capsys: pytest.CaptureFixture) -
     assert status["repos"] == 0
 
 
+def test_list_repos_outputs_repo_summary_shape(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def run():\n    return 'ok'\n")
+
+    main(["index", str(repo), "--name", "demo"])
+    capsys.readouterr()
+
+    main(["list-repos"])
+    repos = json.loads(capsys.readouterr().out)
+
+    assert repos == [
+        {
+            "chunks": 1,
+            "embedded_chunks": 0,
+            "files": 1,
+            "name": "demo",
+            "path": str(repo.resolve()),
+            "updated_at": repos[0]["updated_at"],
+        }
+    ]
+    assert isinstance(repos[0]["updated_at"], str)
+    assert repos[0]["updated_at"]
+
+
 def test_repo_name_conflict_exits_nonzero(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     one = tmp_path / "a" / "api"
     one.mkdir(parents=True)
