@@ -26,9 +26,9 @@ renames the repo in place. `remove <name>` deletes a repo and all of its indexed
 
 `watch` polls and re-indexes on an interval; a failed pass logs to stderr and keeps polling.
 Indexing is incremental: files with an unchanged content hash are skipped when their existing
-embeddings still match the current vector dimension. The index run reports `unchanged_files`,
-`skipped_files` (unreadable or non-UTF-8 files), `embedded_chunks`, and `embedding_failures` so a
-dead embedding service is visible rather than silent.
+embeddings still match the current vector dimension and stored model name. The index run reports
+`unchanged_files`, `skipped_files` (unreadable or non-UTF-8 files), `embedded_chunks`, and
+`embedding_failures` so a dead embedding service is visible rather than silent.
 
 The default database path is `~/.local/share/local-code-indexer/index.db`. Override it with
 `LOCAL_CODE_INDEXER_DB_PATH=/path/to/index.db`.
@@ -70,7 +70,7 @@ parser pack does not cover.
 The indexer loads `sqlite-vec` when the Python package and SQLite extension are available, and
 queries it with a proper vec0 KNN (`k = ?`) constraint. It also stores embedding JSON as a local
 fallback so search remains usable if the extension cannot load. Changing the embedding model's
-dimension is handled on the next index run by rebuilding the vector table.
+name or dimension is handled on the next index run by rebuilding vectors.
 
 ## Ignore rules
 

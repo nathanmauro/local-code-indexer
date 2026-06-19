@@ -36,5 +36,5 @@ OpenAI-compatible local server becomes a configuration swap, not a code change.
 - Reindex throughput work goes into batching, not a backend migration.
 - The two runtimes ship different quantizations of nomic (F16 vs Q4_K_M); vectors are
   not comparable across backends, so any future backend swap requires a full reindex
-  (the existing dimension-change rebuild handles the mechanics when dims differ).
+  (the indexer rebuilds vectors when the stored embedding model name or dimension changes).
 - `LocalEmbedder` keeps enforcing loopback-only URLs regardless of backend.

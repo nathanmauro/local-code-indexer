@@ -208,7 +208,9 @@ class IndexService:
             repo_id, repo_name = self._resolve_repo(conn, name, repo_path, now)
             conn.commit()
             run_start_vector_dim = self._vector_dim(conn)
+            run_start_embed_model = self._embed_model(conn)
             embedder_dim = self._embedder_dim()
+            embedder_model = self._embedder_model()
             for file_path in iter_indexable_files(repo_path, matcher):
                 rel_path = file_path.relative_to(repo_path).as_posix()
                 # Keep the previously indexed version if this file can't be read now.
@@ -222,7 +224,7 @@ class IndexService:
                     continue
                 file_hash = _sha256_bytes(data)
                 existing_file = self._existing_file(conn, repo_id, rel_path)
-                # Same-dimension backend/model swaps are intentionally not detected; ADR-0001 requires a full reindex for those.
+                # Dimension or model changes force re-embedding even when file hashes match.
                 if existing_file is not None and self._can_skip_unchanged_file(
                     conn,
                     existing_file,
@@ -230,6 +232,8 @@ class IndexService:
                     text,
                     run_start_vector_dim,
                     embedder_dim,
+                    run_start_embed_model,
+                    embedder_model,
                 ):
                     unchanged_files += 1
                     continue
@@ -266,6 +270,8 @@ class IndexService:
                 indexed_chunks += len(chunks)
 
             deleted_files = self._delete_missing_files(conn, repo_id, seen_paths)
+            if embedder_model is not None:
+                self._set_embed_model(conn, embedder_model)
             conn.commit()
         except BaseException:
             conn.rollback()
@@ -376,6 +382,8 @@ class IndexService:
         text: str,
         run_start_vector_dim: int | None,
         embedder_dim: int | None,
+        run_start_embed_model: str | None,
+        embedder_model: str | None,
     ) -> bool:
         if existing_file["file_hash"] != file_hash:
             return False
@@ -393,6 +401,8 @@ class IndexService:
             or run_start_vector_dim != embedder_dim
         ):
             return False
+        if self._embed_model_changed(run_start_embed_model, embedder_model):
+            return False
         return all(
             self._embedding_json_dim(row["embedding_json"]) == embedder_dim for row in chunk_rows
         )
@@ -409,6 +419,18 @@ class IndexService:
             return int(dim)
         except (TypeError, ValueError):
             return None
+
+    def _embedder_model(self) -> str | None:
+        if self.embedder is None:
+            return None
+        model = getattr(self.embedder, "model", None)
+        if model is None:
+            return None
+        model_name = str(model).strip()
+        return model_name or None
+
+    def _embed_model_changed(self, stored_model: str | None, current_model: str | None) -> bool:
+        return stored_model is not None and current_model is not None and stored_model != current_model
 
     def _embedding_json_dim(self, embedding_json: str) -> int | None:
         if not embedding_json:
@@ -548,19 +570,37 @@ class IndexService:
             (str(dim),),
         )
 
+    def _embed_model(self, conn: sqlite3.Connection) -> str | None:
+        row = conn.execute("SELECT value FROM settings WHERE key = 'embed_model'").fetchone()
+        if row is None:
+            return None
+        value = str(row["value"]).strip()
+        return value or None
+
+    def _set_embed_model(self, conn: sqlite3.Connection, model: str) -> None:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('embed_model', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (model,),
+        )
+
     def _ensure_vector_table_for_write(self, conn: sqlite3.Connection, dim: int) -> bool:
         if not self._sqlite_vec_loaded or dim <= 0:
             return False
-        existing = self._vector_dim(conn)
-        if existing is not None and existing != dim:
-            # The embedding model changed dimension; drop the old vectors and let
-            # the in-progress reindex repopulate at the new dimension.
+        existing_dim = self._vector_dim(conn)
+        existing_model = self._embed_model(conn)
+        current_model = self._embedder_model()
+        model_changed = self._embed_model_changed(existing_model, current_model)
+        if (existing_dim is not None and existing_dim != dim) or model_changed:
+            # The embedding model changed dimension or identity; drop old vectors
+            # and let the in-progress reindex repopulate comparable rows.
             conn.execute("DROP TABLE IF EXISTS chunk_vectors")
             conn.execute("DELETE FROM chunk_vector_map")
-            existing = None
+            existing_dim = None
         conn.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(embedding float[{dim}])")
-        if existing is None:
+        if existing_dim is None:
             self._set_vector_dim(conn, dim)
+        if current_model is not None:
+            self._set_embed_model(conn, current_model)
         return True
 
     def _vector_table_readable(self, conn: sqlite3.Connection, dim: int) -> bool:
@@ -978,6 +1018,7 @@ class IndexService:
                 repo_params,
             ).fetchone()["count"]
             vector_dim = self._vector_dim(conn)
+            embed_model = self._embed_model(conn)
         return {
             "db_path": str(self.db_path),
             "repos": int(repos),
@@ -986,5 +1027,6 @@ class IndexService:
             "embedded_chunks": int(embedded_chunks),
             "sqlite_vec": "loaded" if self._sqlite_vec_loaded else "unavailable",
             "vector_dim": vector_dim,
+            "embed_model": embed_model,
             "embeddings": "enabled" if self.embedder is not None else "disabled",
         }

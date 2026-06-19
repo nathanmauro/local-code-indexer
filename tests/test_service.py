@@ -1,3 +1,5 @@
+import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -294,6 +296,33 @@ class DimEmbedder:
         return [1.0] + [0.0] * (self.dim - 1)
 
 
+class ModelEmbedder:
+    dim = 4
+
+    def __init__(self, model: str, marker: float):
+        self.model = model
+        self.marker = marker
+        self.calls: list[str] = []
+
+    def embed(self, text: str) -> list[float]:
+        self.calls.append(text)
+        return [self.marker, 0.0, 0.0, 0.0]
+
+
+def test_index_repo_persists_embed_model_and_status_reports_it(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=ModelEmbedder("model-a", 1.0))
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    with sqlite3.connect(tmp_path / "index.db") as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = 'embed_model'").fetchone()
+    assert row == ("model-a",)
+    assert service.status()["embed_model"] == "model-a"
+
+
 def test_embedding_dimension_change_recovers_on_reindex(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "app.py", "def run():\n    return 'ok'\n")
@@ -307,6 +336,44 @@ def test_embedding_dimension_change_recovers_on_reindex(tmp_path: Path) -> None:
     second.index_repo(repo, name="demo")
     assert second.status()["vector_dim"] == 8
     assert second.search("run", repo="demo", mode="vector")
+
+
+def test_same_dimension_model_change_forces_reindex(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+
+    first_embedder = ModelEmbedder("model-a", 1.0)
+    first = IndexService(tmp_path / "index.db", embedder=first_embedder)
+    first.init()
+    first.index_repo(repo, name="demo")
+
+    second_embedder = ModelEmbedder("model-b", 2.0)
+    second = IndexService(tmp_path / "index.db", embedder=second_embedder)
+    result = second.index_repo(repo, name="demo")
+
+    assert result["indexed_files"] == 1
+    assert result["unchanged_files"] == 0
+    assert result["embedded_chunks"] == result["indexed_chunks"]
+    assert len(second_embedder.calls) == result["indexed_chunks"]
+    with sqlite3.connect(tmp_path / "index.db") as conn:
+        row = conn.execute("SELECT embedding_json FROM chunks").fetchone()
+    assert json.loads(row[0])[0] == 2.0
+    assert second.status()["embed_model"] == "model-b"
+
+
+def test_disabled_embeddings_leave_embed_model_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS", "1")
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+
+    service = IndexService(tmp_path / "index.db")
+    service.init()
+    result = service.index_repo(repo, name="demo")
+
+    assert result["embedded_chunks"] == 0
+    assert result["embedding_failures"] == 0
+    assert service.status()["embeddings"] == "disabled"
+    assert service.status()["embed_model"] is None
 
 
 def test_vector_search_uses_sqlite_vec_when_loaded(tmp_path: Path) -> None:
