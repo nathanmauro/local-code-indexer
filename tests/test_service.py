@@ -78,6 +78,28 @@ def test_index_repo_search_read_symbols_and_incremental_delete(tmp_path: Path) -
     assert all(file["path"] != "src/calendar.py" for file in service.list_files(repo="demo"))
 
 
+def test_search_path_filter_applies_to_merged_hybrid_candidates_before_limit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/auth.py", "def login_token_handler(token):\n    return token\n")
+    write(repo / "docs/auth_notes.md", "authorization grant details only\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    unfiltered = service.search("login token", repo="demo", mode="hybrid", limit=10)
+    assert {result["path"] for result in unfiltered} == {"docs/auth_notes.md", "src/auth.py"}
+    assert service.search("login token", repo="demo", mode="hybrid", limit=10, path=None) == unfiltered
+    assert service.search("login token", repo="demo", mode="hybrid", limit=10, path="") == unfiltered
+    assert service.search("login token", repo="demo", mode="hybrid", limit=10, path="missing/*") == []
+    assert service.search("login token", repo="demo", mode="hybrid", limit=1)[0]["path"] == "src/auth.py"
+
+    filtered = service.search("login token", repo="demo", mode="hybrid", limit=1, path="docs/*.md")
+
+    assert [result["path"] for result in filtered] == ["docs/auth_notes.md"]
+    assert filtered[0]["score_reason"] == "vector"
+
+
 def test_index_repo_skips_unchanged_files_without_reembedding(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "src/auth.py", "def login(token):\n    return token.strip()\n")

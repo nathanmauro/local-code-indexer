@@ -12,7 +12,7 @@ calls local embedding services such as Ollama on `127.0.0.1` or `localhost`.
 local-code-indexer init
 local-code-indexer index <repo_path> [--name NAME]
 local-code-indexer watch <repo_path> [--name NAME] [--interval SECONDS]
-local-code-indexer search <query> [--repo NAME] [--limit N] [--mode hybrid|lexical|vector]
+local-code-indexer search <query> [--repo NAME] [--limit N] [--mode hybrid|lexical|vector] [--path GLOB]
 local-code-indexer status [--repo NAME]
 local-code-indexer list-repos
 local-code-indexer reindex-all
@@ -53,7 +53,7 @@ report `degraded: false`.
 
 ## MCP Tools
 
-- `code_index_search(query, repo?, mode?, limit?)`
+- `code_index_search(query, repo?, mode?, limit?, path?)`
 - `code_index_list_files(repo?, glob?, limit?)`
 - `code_index_list_repos()`
 - `code_index_read_file(repo, path, start_line?, end_line?)`

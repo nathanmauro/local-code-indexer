@@ -70,6 +70,28 @@ def test_list_repos_outputs_repo_summary_shape(tmp_path: Path, capsys: pytest.Ca
     assert repos[0]["updated_at"]
 
 
+def test_search_accepts_path_filter(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    (repo / "src" / "auth.py").write_text("def login(token):\n    return token\n")
+    (repo / "docs" / "auth.md").write_text("token docs\n")
+
+    main(["index", str(repo), "--name", "demo"])
+    capsys.readouterr()
+
+    main(["search", "token", "--repo", "demo", "--limit", "10"])
+    unfiltered = json.loads(capsys.readouterr().out)
+    assert {result["path"] for result in unfiltered} == {"docs/auth.md", "src/auth.py"}
+
+    main(["search", "token", "--repo", "demo", "--limit", "10", "--path", "docs/*.md"])
+    filtered = json.loads(capsys.readouterr().out)
+    assert [result["path"] for result in filtered] == ["docs/auth.md"]
+
+    main(["search", "token", "--repo", "demo", "--path", "missing/*"])
+    assert json.loads(capsys.readouterr().out) == []
+
+
 def test_reindex_all_outputs_registered_repo_results(
     tmp_path: Path,
     capsys: pytest.CaptureFixture,

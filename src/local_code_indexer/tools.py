@@ -39,10 +39,19 @@ async def code_index_search(
     repo: str = "",
     mode: str = "hybrid",
     limit: int = 10,
+    path: str = "",
 ) -> str:
     """Search indexed code chunks by lexical, vector, path, and symbol signals."""
     return await _run(
-        lambda: _json(_service().search(query=query, repo=repo or None, mode=mode, limit=limit))
+        lambda: _json(
+            _service().search(
+                query=query,
+                repo=repo or None,
+                mode=mode,
+                limit=limit,
+                path=path or None,
+            )
+        )
     )
 
 

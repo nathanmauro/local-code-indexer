@@ -43,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--repo", default="")
     search.add_argument("--limit", type=int, default=10)
     search.add_argument("--mode", choices=("hybrid", "lexical", "vector"), default="hybrid")
+    search.add_argument("--path", default="")
 
     status = sub.add_parser("status", help="Show index status.")
     status.add_argument("--repo", default="")
@@ -96,6 +97,7 @@ def main(argv: list[str] | None = None) -> None:
                     repo=args.repo or None,
                     limit=args.limit,
                     mode=args.mode,
+                    path=args.path or None,
                 )
             )
         elif args.command == "status":

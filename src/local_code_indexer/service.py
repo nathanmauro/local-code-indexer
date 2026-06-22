@@ -811,7 +811,14 @@ class IndexService:
                 pass
             conn.execute("DELETE FROM chunk_vector_map WHERE chunk_id = ?", (chunk_id,))
 
-    def search(self, query: str, repo: str | None = None, limit: int = 10, mode: str = "hybrid") -> list[dict]:
+    def search(
+        self,
+        query: str,
+        repo: str | None = None,
+        limit: int = 10,
+        mode: str = "hybrid",
+        path: str | None = None,
+    ) -> list[dict]:
         self.init()
         if not query or not query.strip():
             return []
@@ -830,7 +837,10 @@ class IndexService:
                         conn, candidates, query_embedding, repo_filter, repo_params, limit
                     )
             self._add_path_symbol_scores(conn, candidates, query, repo_filter, repo_params)
-            rows = sorted(candidates.values(), key=lambda item: item["score"], reverse=True)[:limit]
+            rows = list(candidates.values())
+            if path:
+                rows = [item for item in rows if fnmatch.fnmatch(item["path"], path)]
+            rows = sorted(rows, key=lambda item: item["score"], reverse=True)[:limit]
             return [self._format_search_result(row) for row in rows]
 
     def _repo_filter(self, repo: str | None) -> tuple[str, list[Any]]:
