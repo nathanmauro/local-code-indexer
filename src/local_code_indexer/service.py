@@ -326,6 +326,45 @@ class IndexService:
             "db_path": str(self.db_path),
         }
 
+    def reindex_all(self) -> dict:
+        self.init()
+        with self._session() as conn:
+            rows = conn.execute(
+                """
+                SELECT r.name, r.path
+                FROM repos r
+                ORDER BY r.name
+                """
+            ).fetchall()
+
+        repos = []
+        reindexed = 0
+        for row in rows:
+            repo_name = row["name"]
+            repo_path = Path(row["path"])
+            try:
+                result = self.index_repo(repo_path, name=repo_name)
+            except ValueError:
+                if repo_path.is_dir():
+                    raise
+                repos.append(
+                    {
+                        "repo": repo_name,
+                        "path": row["path"],
+                        "skipped": True,
+                        "error": "path missing",
+                    }
+                )
+                continue
+            repos.append(result)
+            reindexed += 1
+
+        return {
+            "reindexed": reindexed,
+            "repos": repos,
+            "db_path": str(self.db_path),
+        }
+
     def _resolve_repo(
         self, conn: sqlite3.Connection, name: str | None, path: Path, now: str
     ) -> tuple[int, str]:

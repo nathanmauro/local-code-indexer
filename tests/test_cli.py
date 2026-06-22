@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -67,6 +68,69 @@ def test_list_repos_outputs_repo_summary_shape(tmp_path: Path, capsys: pytest.Ca
     ]
     assert isinstance(repos[0]["updated_at"], str)
     assert repos[0]["updated_at"]
+
+
+def test_reindex_all_outputs_registered_repo_results(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    alpha = tmp_path / "alpha"
+    alpha.mkdir()
+    (alpha / "a.py").write_text("def alpha():\n    return 'old'\n")
+    beta = tmp_path / "beta"
+    beta.mkdir()
+    (beta / "b.py").write_text("def beta():\n    return 'old'\n")
+
+    main(["index", str(beta), "--name", "beta"])
+    capsys.readouterr()
+    main(["index", str(alpha), "--name", "alpha"])
+    capsys.readouterr()
+    (alpha / "a.py").write_text("def alpha():\n    return 'new alpha'\n")
+    (beta / "b.py").write_text("def beta():\n    return 'new beta'\n")
+
+    main(["reindex-all"])
+    result = json.loads(capsys.readouterr().out)
+
+    assert result["reindexed"] == 2
+    assert [repo["repo"] for repo in result["repos"]] == ["alpha", "beta"]
+    by_repo = {repo["repo"]: repo for repo in result["repos"]}
+    assert by_repo["alpha"]["indexed_files"] == 1
+    assert by_repo["alpha"]["path"] == str(alpha.resolve())
+    assert by_repo["beta"]["indexed_files"] == 1
+    assert by_repo["beta"]["path"] == str(beta.resolve())
+
+
+def test_reindex_all_skips_missing_path_without_aborting(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    missing = tmp_path / "missing"
+    missing.mkdir()
+    (missing / "gone.py").write_text("def gone():\n    return 'old'\n")
+    present = tmp_path / "present"
+    present.mkdir()
+    (present / "stay.py").write_text("def stay():\n    return 'old'\n")
+
+    main(["index", str(missing), "--name", "missing"])
+    capsys.readouterr()
+    main(["index", str(present), "--name", "present"])
+    capsys.readouterr()
+    shutil.rmtree(missing)
+    (present / "stay.py").write_text("def stay():\n    return 'new'\n")
+
+    main(["reindex-all"])
+    result = json.loads(capsys.readouterr().out)
+
+    assert result["reindexed"] == 1
+    by_repo = {repo["repo"]: repo for repo in result["repos"]}
+    assert by_repo["missing"] == {
+        "repo": "missing",
+        "path": str(missing.resolve()),
+        "skipped": True,
+        "error": "path missing",
+    }
+    assert by_repo["present"]["indexed_files"] == 1
+    assert by_repo["present"]["path"] == str(present.resolve())
 
 
 def test_repo_name_conflict_exits_nonzero(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

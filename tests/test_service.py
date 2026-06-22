@@ -1,4 +1,5 @@
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -223,6 +224,71 @@ def test_list_repos_returns_zero_one_and_multiple_repo_summaries(tmp_path: Path)
     assert by_name["alpha"]["chunks"] >= 2
     assert by_name["alpha"]["embedded_chunks"] == by_name["alpha"]["chunks"]
     assert by_name["beta"]["files"] == 1
+
+
+def test_reindex_all_reindexes_every_registered_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS", "1")
+    alpha = tmp_path / "alpha"
+    beta = tmp_path / "beta"
+    write(alpha / "a.py", "def alpha():\n    return 'old'\n")
+    write(beta / "b.py", "def beta():\n    return 'old'\n")
+
+    service = IndexService(tmp_path / "index.db")
+    service.init()
+    service.index_repo(beta, name="beta")
+    service.index_repo(alpha, name="alpha")
+    write(alpha / "a.py", "def alpha():\n    return 'new alpha'\n")
+    write(beta / "b.py", "def beta():\n    return 'new beta'\n")
+
+    result = service.reindex_all()
+
+    assert result["reindexed"] == 2
+    assert result["db_path"] == str(tmp_path / "index.db")
+    assert [repo["repo"] for repo in result["repos"]] == ["alpha", "beta"]
+    by_repo = {repo["repo"]: repo for repo in result["repos"]}
+    assert by_repo["alpha"]["path"] == str(alpha.resolve())
+    assert by_repo["alpha"]["indexed_files"] == 1
+    assert by_repo["alpha"]["unchanged_files"] == 0
+    assert by_repo["beta"]["path"] == str(beta.resolve())
+    assert by_repo["beta"]["indexed_files"] == 1
+    assert by_repo["beta"]["unchanged_files"] == 0
+    assert service.read_file("alpha", "a.py")["content"] == "def alpha():\n    return 'new alpha'"
+    assert service.read_file("beta", "b.py")["content"] == "def beta():\n    return 'new beta'"
+
+
+def test_reindex_all_skips_missing_repo_path_and_continues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS", "1")
+    missing = tmp_path / "missing"
+    present = tmp_path / "present"
+    write(missing / "gone.py", "def gone():\n    return 'old'\n")
+    write(present / "stay.py", "def stay():\n    return 'old'\n")
+
+    service = IndexService(tmp_path / "index.db")
+    service.init()
+    service.index_repo(missing, name="missing")
+    service.index_repo(present, name="present")
+    shutil.rmtree(missing)
+    write(present / "stay.py", "def stay():\n    return 'new'\n")
+
+    result = service.reindex_all()
+
+    assert result["reindexed"] == 1
+    by_repo = {repo["repo"]: repo for repo in result["repos"]}
+    assert by_repo["missing"] == {
+        "repo": "missing",
+        "path": str(missing.resolve()),
+        "skipped": True,
+        "error": "path missing",
+    }
+    assert by_repo["present"]["indexed_files"] == 1
+    assert by_repo["present"]["path"] == str(present.resolve())
+    assert service.read_file("present", "stay.py")["content"] == "def stay():\n    return 'new'"
 
 
 def test_status_includes_per_repo_breakdown_and_respects_repo_filter(tmp_path: Path) -> None:

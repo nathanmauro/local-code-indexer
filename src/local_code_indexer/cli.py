@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--repo", default="")
 
     sub.add_parser("list-repos", help="List indexed repositories.")
+    sub.add_parser("reindex-all", help="Reindex every registered repository.")
 
     remove = sub.add_parser("remove", help="Remove an indexed repo and all its data.")
     remove.add_argument("name")
@@ -101,6 +102,8 @@ def main(argv: list[str] | None = None) -> None:
             _print_json(service.status(repo=args.repo or None))
         elif args.command == "list-repos":
             _print_json(service.list_repos())
+        elif args.command == "reindex-all":
+            _print_json(service.reindex_all())
         elif args.command == "remove":
             _print_json(service.remove_repo(args.name))
         elif args.command == "mcp-config":

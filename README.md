@@ -15,6 +15,7 @@ local-code-indexer watch <repo_path> [--name NAME] [--interval SECONDS]
 local-code-indexer search <query> [--repo NAME] [--limit N] [--mode hybrid|lexical|vector]
 local-code-indexer status [--repo NAME]
 local-code-indexer list-repos
+local-code-indexer reindex-all
 local-code-indexer remove <name>
 local-code-indexer mcp-config --client codex|claude
 local-code-indexer mcp
@@ -24,6 +25,7 @@ Repos are identified by their resolved directory path. The default name is the d
 basename; indexing a second directory whose basename collides with an existing repo fails with
 an error asking for an explicit `--name`. Re-indexing the same directory with a new `--name`
 renames the repo in place. `remove <name>` deletes a repo and all of its indexed data.
+`reindex-all` refreshes every registered repo and skips stored paths that no longer exist.
 
 `watch` polls and re-indexes on an interval; a failed pass logs to stderr and keeps polling.
 Indexing is incremental: files with an unchanged content hash are skipped when their existing
