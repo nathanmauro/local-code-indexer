@@ -104,8 +104,9 @@ async def code_index_symbols(
     query: str = "",
     path: str = "",
     limit: int = 50,
+    lang: str = "",
 ) -> str:
-    """Search indexed symbols by repo, symbol text, and path."""
+    """Search indexed symbols by repo, symbol text, path, and language."""
     return await _run(
         lambda: _json(
             _service().symbols(
@@ -113,6 +114,7 @@ async def code_index_symbols(
                 query=query or None,
                 path=path or None,
                 limit=limit,
+                lang=lang or None,
             )
         )
     )

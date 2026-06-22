@@ -1194,11 +1194,19 @@ class IndexService:
             "file_hash": row["file_hash"],
         }
 
-    def symbols(self, repo: str | None = None, query: str | None = None, path: str | None = None, limit: int = 50) -> list[dict]:
+    def symbols(
+        self,
+        repo: str | None = None,
+        query: str | None = None,
+        path: str | None = None,
+        limit: int = 50,
+        lang: str | None = None,
+    ) -> list[dict]:
         self.init()
         limit = max(1, min(int(limit), 500))
         conditions = ["1=1"]
         params: list[Any] = []
+        file_join = ""
         if repo:
             conditions.append("r.name = ?")
             params.append(repo)
@@ -1208,12 +1216,18 @@ class IndexService:
         if path:
             conditions.append("s.path = ?")
             params.append(path)
+        lang_filter = _normalize_lang_filter(lang)
+        if lang_filter is not None:
+            file_join = "JOIN files f ON s.file_id = f.id"
+            conditions.append("f.language = ?")
+            params.append(lang_filter)
         with self._session() as conn:
             rows = conn.execute(
                 f"""
                 SELECT r.name AS repo, s.symbol, s.path, s.line, s.chunk_id
                 FROM symbols s
                 JOIN repos r ON s.repo_id = r.id
+                {file_join}
                 WHERE {' AND '.join(conditions)}
                 ORDER BY
                     CASE WHEN ? != '' AND lower(s.symbol) = lower(?) THEN 0 ELSE 1 END,

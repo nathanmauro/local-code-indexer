@@ -152,6 +152,26 @@ def test_list_files_accepts_lang_filter(tmp_path: Path) -> None:
     assert service.list_files(repo="demo", lang="rs") == []
 
 
+def test_symbols_accepts_lang_filter_before_limit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "a.py", "def python_symbol():\n    return 1\n")
+    write(repo / "z.md", "```python\ndef markdown_symbol():\n    return 2\n```\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    unfiltered = service.symbols(repo="demo", limit=10)
+    assert {symbol["path"] for symbol in unfiltered} == {"a.py", "z.md"}
+    assert service.symbols(repo="demo", lang=None, limit=10) == unfiltered
+    assert service.symbols(repo="demo", lang="", limit=10) == unfiltered
+    assert [symbol["path"] for symbol in service.symbols(repo="demo", lang="py")] == ["a.py"]
+    assert [symbol["path"] for symbol in service.symbols(repo="demo", lang=".py")] == ["a.py"]
+    assert [symbol["path"] for symbol in service.symbols(repo="demo", lang="PY")] == ["a.py"]
+    assert service.symbols(repo="demo", lang="rs") == []
+    assert [symbol["path"] for symbol in service.symbols(repo="demo", lang="md", limit=1)] == ["z.md"]
+
+
 def test_index_repo_skips_unchanged_files_without_reembedding(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "src/auth.py", "def login(token):\n    return token.strip()\n")

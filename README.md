@@ -57,7 +57,7 @@ report `degraded: false`.
 - `code_index_list_files(repo?, glob?, limit?, lang?)`
 - `code_index_list_repos()`
 - `code_index_read_file(repo, path, start_line?, end_line?)`
-- `code_index_symbols(repo?, query?, path?, limit?)`
+- `code_index_symbols(repo?, query?, path?, limit?, lang?)`
 - `code_index_status(repo?)`
 
 Print client config snippets without editing live MCP config:
