@@ -40,6 +40,7 @@ async def code_index_search(
     mode: str = "hybrid",
     limit: int = 10,
     path: str = "",
+    lang: str = "",
 ) -> str:
     """Search indexed code chunks by lexical, vector, path, and symbol signals."""
     return await _run(
@@ -50,16 +51,29 @@ async def code_index_search(
                 mode=mode,
                 limit=limit,
                 path=path or None,
+                lang=lang or None,
             )
         )
     )
 
 
 @mcp.tool()
-async def code_index_list_files(repo: str = "", glob: str = "", limit: int = 50) -> str:
+async def code_index_list_files(
+    repo: str = "",
+    glob: str = "",
+    limit: int = 50,
+    lang: str = "",
+) -> str:
     """List indexed files, optionally filtered by repo and glob."""
     return await _run(
-        lambda: _json(_service().list_files(repo=repo or None, glob=glob or None, limit=limit))
+        lambda: _json(
+            _service().list_files(
+                repo=repo or None,
+                glob=glob or None,
+                limit=limit,
+                lang=lang or None,
+            )
+        )
     )
 
 

@@ -92,6 +92,36 @@ def test_search_accepts_path_filter(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert json.loads(capsys.readouterr().out) == []
 
 
+def test_search_accepts_lang_filter(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    (repo / "src" / "auth.py").write_text("def login(token):\n    return token\n")
+    (repo / "docs" / "auth.md").write_text("token docs\n")
+
+    main(["index", str(repo), "--name", "demo"])
+    capsys.readouterr()
+
+    main(["search", "token", "--repo", "demo", "--limit", "10"])
+    unfiltered = json.loads(capsys.readouterr().out)
+    assert {result["path"] for result in unfiltered} == {"docs/auth.md", "src/auth.py"}
+    assert {result["language"] for result in unfiltered} == {"md", "py"}
+
+    main(["search", "token", "--repo", "demo", "--limit", "10", "--lang", "py"])
+    filtered = json.loads(capsys.readouterr().out)
+    assert [result["path"] for result in filtered] == ["src/auth.py"]
+    assert [result["language"] for result in filtered] == ["py"]
+
+    main(["search", "token", "--repo", "demo", "--limit", "10", "--lang", ".py"])
+    assert [result["path"] for result in json.loads(capsys.readouterr().out)] == ["src/auth.py"]
+
+    main(["search", "token", "--repo", "demo", "--limit", "10", "--lang", "PY"])
+    assert [result["path"] for result in json.loads(capsys.readouterr().out)] == ["src/auth.py"]
+
+    main(["search", "token", "--repo", "demo", "--lang", "rs"])
+    assert json.loads(capsys.readouterr().out) == []
+
+
 def test_reindex_all_outputs_registered_repo_results(
     tmp_path: Path,
     capsys: pytest.CaptureFixture,

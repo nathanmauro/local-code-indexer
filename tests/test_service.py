@@ -100,6 +100,58 @@ def test_search_path_filter_applies_to_merged_hybrid_candidates_before_limit(tmp
     assert filtered[0]["score_reason"] == "vector"
 
 
+def test_search_lang_filter_applies_to_merged_hybrid_candidates_before_limit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/auth.py", "def login_token_handler(token):\n    return token\n")
+    write(repo / "docs/auth_notes.md", "authorization grant details only\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    unfiltered = service.search("login token", repo="demo", mode="hybrid", limit=10)
+    assert {result["path"] for result in unfiltered} == {"docs/auth_notes.md", "src/auth.py"}
+    assert {result["language"] for result in unfiltered} == {"md", "py"}
+    assert service.search("login token", repo="demo", mode="hybrid", limit=10, lang=None) == unfiltered
+    assert service.search("login token", repo="demo", mode="hybrid", limit=10, lang="") == unfiltered
+    assert service.search("login token", repo="demo", mode="hybrid", limit=10, lang="rs") == []
+    assert service.search("login token", repo="demo", mode="hybrid", limit=1)[0]["path"] == "src/auth.py"
+
+    filtered = service.search("login token", repo="demo", mode="hybrid", limit=1, lang="md")
+
+    assert [result["path"] for result in filtered] == ["docs/auth_notes.md"]
+    assert [result["language"] for result in filtered] == ["md"]
+    assert filtered[0]["score_reason"] == "vector"
+    assert [result["path"] for result in service.search("login token", repo="demo", lang="py")] == [
+        "src/auth.py"
+    ]
+    assert [result["path"] for result in service.search("login token", repo="demo", lang=".py")] == [
+        "src/auth.py"
+    ]
+    assert [result["path"] for result in service.search("login token", repo="demo", lang="PY")] == [
+        "src/auth.py"
+    ]
+
+
+def test_list_files_accepts_lang_filter(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/auth.py", "def login(token):\n    return token\n")
+    write(repo / "docs/auth.md", "token docs\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    unfiltered = service.list_files(repo="demo")
+    assert {file["path"] for file in unfiltered} == {"docs/auth.md", "src/auth.py"}
+    assert service.list_files(repo="demo", lang=None) == unfiltered
+    assert service.list_files(repo="demo", lang="") == unfiltered
+    assert [file["path"] for file in service.list_files(repo="demo", lang="py")] == ["src/auth.py"]
+    assert [file["path"] for file in service.list_files(repo="demo", lang=".py")] == ["src/auth.py"]
+    assert [file["path"] for file in service.list_files(repo="demo", lang="PY")] == ["src/auth.py"]
+    assert service.list_files(repo="demo", lang="rs") == []
+
+
 def test_index_repo_skips_unchanged_files_without_reembedding(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "src/auth.py", "def login(token):\n    return token.strip()\n")

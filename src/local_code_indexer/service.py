@@ -79,6 +79,16 @@ def _snippet(content: str, max_chars: int = 500) -> str:
     return text[: max_chars - 1].rstrip() + "..."
 
 
+def _path_language(path: str) -> str:
+    return Path(path).suffix.lstrip(".")
+
+
+def _normalize_lang_filter(lang: str | None) -> str | None:
+    if lang is None or lang == "":
+        return None
+    return lang.lstrip(".").lower()
+
+
 class IndexService:
     def __init__(self, db_path: Path, embedder=None):
         self.db_path = Path(db_path)
@@ -818,6 +828,7 @@ class IndexService:
         limit: int = 10,
         mode: str = "hybrid",
         path: str | None = None,
+        lang: str | None = None,
     ) -> list[dict]:
         self.init()
         if not query or not query.strip():
@@ -840,6 +851,9 @@ class IndexService:
             rows = list(candidates.values())
             if path:
                 rows = [item for item in rows if fnmatch.fnmatch(item["path"], path)]
+            lang_filter = _normalize_lang_filter(lang)
+            if lang_filter is not None:
+                rows = [item for item in rows if _path_language(item["path"]).lower() == lang_filter]
             rows = sorted(rows, key=lambda item: item["score"], reverse=True)[:limit]
             return [self._format_search_result(row) for row in rows]
 
@@ -1092,6 +1106,7 @@ class IndexService:
         return {
             "repo": row["repo"],
             "path": row["path"],
+            "language": _path_language(row["path"]),
             "line_range": f"{row['start_line']}-{row['end_line']}",
             "start_line": row["start_line"],
             "end_line": row["end_line"],
@@ -1103,9 +1118,16 @@ class IndexService:
             "snippet": _snippet(row["content"]),
         }
 
-    def list_files(self, repo: str | None = None, glob: str | None = None, limit: int = 50) -> list[dict]:
+    def list_files(
+        self,
+        repo: str | None = None,
+        glob: str | None = None,
+        limit: int = 50,
+        lang: str | None = None,
+    ) -> list[dict]:
         self.init()
         limit = max(1, min(int(limit), 500))
+        lang_filter = _normalize_lang_filter(lang)
         with self._session() as conn:
             repo_filter, repo_params = self._repo_filter(repo)
             rows = conn.execute(
@@ -1122,12 +1144,14 @@ class IndexService:
             {
                 "repo": row["repo"],
                 "path": row["path"],
+                "language": _path_language(row["path"]),
                 "file_hash": row["file_hash"],
                 "size": row["size"],
                 "indexed_at": row["indexed_at"],
             }
             for row in rows
             if not glob or fnmatch.fnmatch(row["path"], glob)
+            if lang_filter is None or _path_language(row["path"]).lower() == lang_filter
         ]
         return results[:limit]
 
