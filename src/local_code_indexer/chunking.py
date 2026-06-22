@@ -28,16 +28,25 @@ LANG_BY_SUFFIX = {
 }
 
 SYMBOL_PATTERNS = (
-    re.compile(r"^\s*class\s+([A-Za-z_][\w]*)", re.MULTILINE),
-    re.compile(r"^\s*def\s+([A-Za-z_][\w]*)", re.MULTILINE),
-    re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)", re.MULTILINE),
-    re.compile(r"^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)", re.MULTILINE),
-    re.compile(
-        r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>",
-        re.MULTILINE,
+    (re.compile(r"^\s*class\s+([A-Za-z_][\w]*)", re.MULTILINE), "class"),
+    (re.compile(r"^\s*def\s+([A-Za-z_][\w]*)", re.MULTILINE), "function"),
+    (
+        re.compile(
+            r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)",
+            re.MULTILINE,
+        ),
+        "function",
     ),
-    re.compile(r"^\s*func\s+([A-Za-z_][\w]*)", re.MULTILINE),
-    re.compile(r"^\s*(?:pub\s+)?fn\s+([A-Za-z_][\w]*)", re.MULTILINE),
+    (re.compile(r"^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)", re.MULTILINE), "class"),
+    (
+        re.compile(
+            r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>",
+            re.MULTILINE,
+        ),
+        "function",
+    ),
+    (re.compile(r"^\s*func\s+([A-Za-z_][\w]*)", re.MULTILINE), "function"),
+    (re.compile(r"^\s*(?:pub\s+)?fn\s+([A-Za-z_][\w]*)", re.MULTILINE), "function"),
 )
 
 
@@ -104,8 +113,18 @@ def _node_end_row(node) -> int:
     return node.end_point[0]
 
 
-def _tree_sitter_definitions(path: str, text: str) -> list[tuple[str, int, int]]:
-    """Return (name, 1-based start line, 1-based end line) for parseable definitions."""
+def _symbol_kind(node_kind: str, parent_definition_kind: str | None = None) -> str:
+    if node_kind in {"class_definition", "class_declaration"}:
+        return "class"
+    if node_kind in {"method_definition", "method_declaration"}:
+        return "method"
+    if node_kind in {"function_definition", "function_declaration"}:
+        return "method" if parent_definition_kind == "class" else "function"
+    return ""
+
+
+def _tree_sitter_definitions(path: str, text: str) -> list[tuple[str, int, int, str]]:
+    """Return (name, 1-based start line, 1-based end line, kind) for definitions."""
     language = _language_for_path(path)
     if not language:
         return []
@@ -123,7 +142,7 @@ def _tree_sitter_definitions(path: str, text: str) -> list[tuple[str, int, int]]
     except Exception:
         return []
 
-    definitions: list[tuple[str, int, int]] = []
+    definitions: list[tuple[str, int, int, str]] = []
     source_bytes = text.encode()
     interesting = {
         "class_definition",
@@ -134,36 +153,45 @@ def _tree_sitter_definitions(path: str, text: str) -> list[tuple[str, int, int]]
         "method_declaration",
     }
 
-    def visit(node) -> None:
-        if _node_kind(node) in interesting:
+    def visit(node, parent_definition_kind: str | None = None) -> None:
+        node_kind = _node_kind(node)
+        if node_kind in interesting:
             name = node.child_by_field_name("name")
             if name is not None:
                 start, end = _unwrap(name.start_byte), _unwrap(name.end_byte)
                 value = source_bytes[start:end].decode(errors="ignore")
                 if value:
-                    definitions.append((value, _node_start_row(node) + 1, _node_end_row(node) + 1))
+                    definitions.append(
+                        (
+                            value,
+                            _node_start_row(node) + 1,
+                            _node_end_row(node) + 1,
+                            _symbol_kind(node_kind, parent_definition_kind),
+                        )
+                    )
+            parent_definition_kind = _symbol_kind(node_kind, parent_definition_kind)
         for child in _node_children(node):
-            visit(child)
+            visit(child, parent_definition_kind)
 
     visit(_unwrap(tree.root_node))
     return definitions
 
 
 def _tree_sitter_symbols(path: str, text: str) -> list[str]:
-    return [name for name, _, _ in _tree_sitter_definitions(path, text)]
+    return [name for name, _, _, _ in _tree_sitter_definitions(path, text)]
 
 
-def _regex_symbol_definitions(text: str) -> list[tuple[str, int]]:
-    results: list[tuple[str, int]] = []
-    for pattern in SYMBOL_PATTERNS:
+def _regex_symbol_definitions(text: str) -> list[tuple[str, int, str]]:
+    results: list[tuple[str, int, str]] = []
+    for pattern, kind in SYMBOL_PATTERNS:
         for match in pattern.finditer(text):
             line = text.count("\n", 0, match.start()) + 1
-            results.append((match.group(1), line))
+            results.append((match.group(1), line, kind))
     return results
 
 
 def _regex_symbols(text: str) -> list[str]:
-    return [name for name, _ in _regex_symbol_definitions(text)]
+    return [name for name, _, _ in _regex_symbol_definitions(text)]
 
 
 def _dedupe(values: list[str]) -> tuple[str, ...]:
@@ -189,7 +217,7 @@ def chunk_file_text(repo: str, path: str, text: str, max_lines: int = 80, overla
     max_lines = max(1, max_lines)
     overlap = max(0, min(overlap, max_lines - 1))
     symbols = extract_symbols(path, text)
-    spans = sorted({(first, last) for _, first, last in _tree_sitter_definitions(path, text)})
+    spans = sorted({(first, last) for _, first, last, _ in _tree_sitter_definitions(path, text)})
     chunks: list[CodeChunk] = []
 
     start = 0
@@ -230,16 +258,18 @@ def chunk_file_text(repo: str, path: str, text: str, max_lines: int = 80, overla
     return chunks
 
 
-def extract_symbol_definitions(path: str, text: str) -> list[tuple[str, int]]:
-    """(name, 1-based definition line) pairs; tree-sitter first, regex fallback for the rest."""
-    definitions = [(name, start) for name, start, _ in _tree_sitter_definitions(path, text)]
-    seen = {name for name, _ in definitions}
-    for name, line in _regex_symbol_definitions(text):
+def extract_symbol_definitions(path: str, text: str) -> list[tuple[str, int, str]]:
+    """(name, 1-based definition line, kind) triples; tree-sitter first, regex fallback after."""
+    definitions = [
+        (name, start, kind) for name, start, _, kind in _tree_sitter_definitions(path, text)
+    ]
+    seen = {name for name, _, _ in definitions}
+    for name, line, kind in _regex_symbol_definitions(text):
         if name not in seen:
-            definitions.append((name, line))
+            definitions.append((name, line, kind))
             seen.add(name)
     return definitions
 
 
 def extract_symbols(path: str, text: str) -> tuple[str, ...]:
-    return _dedupe([name for name, _ in extract_symbol_definitions(path, text)])
+    return _dedupe([name for name, _, _ in extract_symbol_definitions(path, text)])

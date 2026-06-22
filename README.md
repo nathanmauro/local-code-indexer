@@ -57,7 +57,7 @@ report `degraded: false`.
 - `code_index_list_files(repo?, glob?, limit?, lang?)`
 - `code_index_list_repos()`
 - `code_index_read_file(repo, path, start_line?, end_line?)`
-- `code_index_symbols(repo?, query?, path?, limit?, lang?)`
+- `code_index_symbols(repo?, query?, path?, limit?, lang?, kind?)`
 - `code_index_status(repo?)`
 
 Print client config snippets without editing live MCP config:
@@ -75,8 +75,8 @@ and snippet text.
 
 Files are chunked by line windows that snap to tree-sitter definition boundaries: when a window
 would cut a function or class in half, the chunk breaks before it so the next chunk starts at the
-definition. Symbols come from the same tree-sitter parse, with a regex fallback for languages the
-parser pack does not cover.
+definition. Symbols come from the same tree-sitter parse, with a captured kind (`class`,
+`function`, or `method`) and a regex fallback for languages the parser pack does not cover.
 
 The indexer loads `sqlite-vec` when the Python package and SQLite extension are available, and
 queries it with a proper vec0 KNN (`k = ?`) constraint. It also stores embedding JSON as a local

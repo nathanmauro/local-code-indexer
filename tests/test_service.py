@@ -172,6 +172,62 @@ def test_symbols_accepts_lang_filter_before_limit(tmp_path: Path) -> None:
     assert [symbol["path"] for symbol in service.symbols(repo="demo", lang="md", limit=1)] == ["z.md"]
 
 
+def test_symbols_capture_kind_and_accept_kind_filter_before_limit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(
+        repo / "model.py",
+        "class Account:\n"
+        "    def balance(self):\n"
+        "        return 1\n\n"
+        "def load_account():\n"
+        "    return Account()\n",
+    )
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    unfiltered = service.symbols(repo="demo", limit=10)
+    by_symbol = {symbol["symbol"]: symbol for symbol in unfiltered}
+    assert by_symbol["Account"]["kind"] == "class"
+    assert by_symbol["balance"]["kind"] == "method"
+    assert by_symbol["load_account"]["kind"] == "function"
+    assert service.symbols(repo="demo", kind=None, limit=10) == unfiltered
+    assert service.symbols(repo="demo", kind="", limit=10) == unfiltered
+    assert [symbol["symbol"] for symbol in service.symbols(repo="demo", kind="class")] == ["Account"]
+    assert [symbol["symbol"] for symbol in service.symbols(repo="demo", kind="function")] == [
+        "load_account"
+    ]
+    assert [symbol["symbol"] for symbol in service.symbols(repo="demo", kind="method")] == ["balance"]
+    assert [symbol["symbol"] for symbol in service.symbols(repo="demo", kind="METHOD")] == ["balance"]
+    assert service.symbols(repo="demo", kind="constant") == []
+
+
+def test_init_migrates_existing_symbols_table_to_store_kind(tmp_path: Path) -> None:
+    db_path = tmp_path / "index.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE symbols (
+                id INTEGER PRIMARY KEY,
+                repo_id INTEGER NOT NULL,
+                file_id INTEGER NOT NULL,
+                chunk_id TEXT,
+                symbol TEXT NOT NULL,
+                path TEXT NOT NULL,
+                line INTEGER NOT NULL
+            )
+            """
+        )
+
+    service = IndexService(db_path, embedder=FakeEmbedder())
+    service.init()
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(symbols)")}
+    assert "kind" in columns
+
+
 def test_index_repo_skips_unchanged_files_without_reembedding(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "src/auth.py", "def login(token):\n    return token.strip()\n")

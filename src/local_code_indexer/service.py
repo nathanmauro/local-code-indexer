@@ -89,6 +89,13 @@ def _normalize_lang_filter(lang: str | None) -> str | None:
     return lang.lstrip(".").lower()
 
 
+def _normalize_kind_filter(kind: str | None) -> str | None:
+    if kind is None:
+        return None
+    normalized = kind.strip().lower()
+    return normalized or None
+
+
 class IndexService:
     def __init__(self, db_path: Path, embedder=None):
         self.db_path = Path(db_path)
@@ -184,6 +191,7 @@ class IndexService:
                     file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
                     chunk_id TEXT REFERENCES chunks(id) ON DELETE CASCADE,
                     symbol TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT '',
                     path TEXT NOT NULL,
                     line INTEGER NOT NULL
                 );
@@ -206,7 +214,13 @@ class IndexService:
                 );
                 """
             )
+            self._ensure_symbols_kind_column(conn)
             conn.commit()
+
+    def _ensure_symbols_kind_column(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(symbols)")}
+        if "kind" not in columns:
+            conn.execute("ALTER TABLE symbols ADD COLUMN kind TEXT NOT NULL DEFAULT ''")
 
     def index_repo(self, repo_path: Path, name: str | None = None) -> dict:
         self.init()
@@ -626,14 +640,14 @@ class IndexService:
         text: str,
         chunks: list[CodeChunk],
     ) -> None:
-        for symbol, line in dict.fromkeys(extract_symbol_definitions(path, text)):
+        for symbol, line, kind in dict.fromkeys(extract_symbol_definitions(path, text)):
             chunk_id = next(
                 (chunk.id for chunk in chunks if chunk.start_line <= line <= chunk.end_line),
                 chunks[0].id if chunks else None,
             )
             conn.execute(
-                "INSERT INTO symbols (repo_id, file_id, chunk_id, symbol, path, line) VALUES (?, ?, ?, ?, ?, ?)",
-                (repo_id, file_id, chunk_id, symbol, path, line),
+                "INSERT INTO symbols (repo_id, file_id, chunk_id, symbol, kind, path, line) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (repo_id, file_id, chunk_id, symbol, kind, path, line),
             )
 
     def _embed_chunks(self, contents: list[str]) -> list[list[float] | None]:
@@ -1201,6 +1215,7 @@ class IndexService:
         path: str | None = None,
         limit: int = 50,
         lang: str | None = None,
+        kind: str | None = None,
     ) -> list[dict]:
         self.init()
         limit = max(1, min(int(limit), 500))
@@ -1221,10 +1236,14 @@ class IndexService:
             file_join = "JOIN files f ON s.file_id = f.id"
             conditions.append("f.language = ?")
             params.append(lang_filter)
+        kind_filter = _normalize_kind_filter(kind)
+        if kind_filter is not None:
+            conditions.append("lower(s.kind) = ?")
+            params.append(kind_filter)
         with self._session() as conn:
             rows = conn.execute(
                 f"""
-                SELECT r.name AS repo, s.symbol, s.path, s.line, s.chunk_id
+                SELECT r.name AS repo, s.symbol, s.kind, s.path, s.line, s.chunk_id
                 FROM symbols s
                 JOIN repos r ON s.repo_id = r.id
                 {file_join}
@@ -1242,6 +1261,7 @@ class IndexService:
             {
                 "repo": row["repo"],
                 "symbol": row["symbol"],
+                "kind": row["kind"],
                 "path": row["path"],
                 "line": row["line"],
                 "chunk_id": row["chunk_id"],

@@ -44,9 +44,12 @@ def test_chunks_snap_to_tree_sitter_definition_boundaries() -> None:
 def test_symbol_definitions_report_definition_lines_not_first_mention() -> None:
     text = '"""Module that uses helper_fn for things."""\n\n\ndef helper_fn():\n    return 1\n'
 
-    definitions = dict(extract_symbol_definitions("src/util.py", text))
+    definitions = {
+        name: (line, kind)
+        for name, line, kind in extract_symbol_definitions("src/util.py", text)
+    }
 
-    assert definitions["helper_fn"] == 4
+    assert definitions["helper_fn"] == (4, "function")
 
 
 def test_symbol_extraction_supports_common_code_shapes() -> None:
