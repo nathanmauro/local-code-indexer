@@ -795,6 +795,23 @@ def test_unchanged_files_skip_when_sqlite_vec_unavailable(
     assert len(embedder.calls) == calls_after_first
 
 
+def test_status_reports_vector_query_backend_unavailable_when_sqlite_vec_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(service_module, "sqlite_vec", None)
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    status = service.status()
+    assert status["sqlite_vec"] == "unavailable"
+    assert status["vector_query_backend"] == "unavailable"
+
+
 def test_disabled_embeddings_leave_embed_model_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS", "1")
     repo = tmp_path / "repo"
@@ -822,6 +839,19 @@ def test_vector_search_uses_sqlite_vec_when_loaded(tmp_path: Path) -> None:
     assert results
     if service.status()["sqlite_vec"] == "loaded":
         assert service.last_vector_backend == "sqlite-vec"
+
+
+def test_status_reports_sqlite_vec_vector_query_backend_when_loaded(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/auth.py", "def login(token):\n    return token\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    status = service.status()
+    if status["sqlite_vec"] == "loaded":
+        assert status["vector_query_backend"] == "sqlite-vec"
 
 
 def test_empty_query_returns_nothing(tmp_path: Path) -> None:

@@ -56,7 +56,11 @@ OpenAI-compatible local server such as LM Studio or llama.cpp's llama-server, wh
 `::1`) regardless of backend. Set `LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS=1` for
 lexical/path/symbol-only indexing and search. `status` reports `degraded: true` when embeddings are
 enabled but stored coverage is incomplete (`embedded_chunks < chunks`); disabled embeddings always
-report `degraded: false`.
+report `degraded: false`. It keeps the backward-compatible `sqlite_vec` field for extension load
+state (`loaded` or `unavailable`) and also reports `vector_query_backend`: `unavailable` when the
+extension is not loaded, `sqlite-vec` when stored vectors can be queried through the vec0 KNN table,
+and `json-fallback` when the extension loaded but the readable vec0 path is not usable so vector
+queries fall back to the local JSON cosine scan.
 
 ## MCP Tools
 

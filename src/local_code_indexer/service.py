@@ -1372,6 +1372,13 @@ class IndexService:
                 repo_params,
             ).fetchone()["count"]
             vector_dim = self._vector_dim(conn)
+            vector_query_backend = "unavailable"
+            if self._sqlite_vec_loaded:
+                vector_query_backend = (
+                    "sqlite-vec"
+                    if vector_dim is not None and self._vector_table_readable(conn, vector_dim)
+                    else "json-fallback"
+                )
             embed_model = self._embed_model(conn)
             degraded = self.embedder is not None and int(embedded_chunks) < int(chunks)
             per_repo = self._repo_summaries(conn, repo_filter, repo_params)
@@ -1382,6 +1389,7 @@ class IndexService:
             "chunks": int(chunks),
             "embedded_chunks": int(embedded_chunks),
             "sqlite_vec": "loaded" if self._sqlite_vec_loaded else "unavailable",
+            "vector_query_backend": vector_query_backend,
             "vector_dim": vector_dim,
             "embed_model": embed_model,
             "embeddings": "enabled" if self.embedder is not None else "disabled",
