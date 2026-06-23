@@ -41,8 +41,9 @@ async def code_index_search(
     limit: int = 10,
     path: str = "",
     lang: str = "",
+    kind: str = "",
 ) -> str:
-    """Search indexed code chunks by lexical, vector, path, and symbol signals."""
+    """Search indexed code chunks by lexical, vector, path, symbol, and symbol-kind signals."""
     return await _run(
         lambda: _json(
             _service().search(
@@ -52,6 +53,7 @@ async def code_index_search(
                 limit=limit,
                 path=path or None,
                 lang=lang or None,
+                kind=kind or None,
             )
         )
     )

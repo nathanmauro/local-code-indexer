@@ -843,25 +843,51 @@ class IndexService:
         mode: str = "hybrid",
         path: str | None = None,
         lang: str | None = None,
+        kind: str | None = None,
     ) -> list[dict]:
         self.init()
         if not query or not query.strip():
             return []
         limit = max(1, min(int(limit), 100))
         mode = mode or "hybrid"
+        kind_filter = _normalize_kind_filter(kind)
+        kind_sql, kind_params = self._kind_chunk_filter(kind_filter)
         self.last_vector_backend = None
         with self._session() as conn:
             repo_filter, repo_params = self._repo_filter(repo)
             candidates: dict[str, dict[str, Any]] = {}
             if mode in {"hybrid", "lexical"}:
-                self._add_fts_candidates(conn, candidates, query, repo_filter, repo_params)
+                self._add_fts_candidates(
+                    conn,
+                    candidates,
+                    query,
+                    repo_filter,
+                    repo_params,
+                    kind_sql,
+                    kind_params,
+                )
             if mode in {"hybrid", "vector"}:
                 query_embedding = self._embed_query(query)
                 if query_embedding:
                     self.last_vector_backend = self._add_vector_candidates(
-                        conn, candidates, query_embedding, repo_filter, repo_params, limit
+                        conn,
+                        candidates,
+                        query_embedding,
+                        repo_filter,
+                        repo_params,
+                        limit,
+                        kind_sql,
+                        kind_params,
                     )
-            self._add_path_symbol_scores(conn, candidates, query, repo_filter, repo_params)
+            self._add_path_symbol_scores(
+                conn,
+                candidates,
+                query,
+                repo_filter,
+                repo_params,
+                kind_sql,
+                kind_params,
+            )
             rows = list(candidates.values())
             if path:
                 rows = [item for item in rows if fnmatch.fnmatch(item["path"], path)]
@@ -875,6 +901,21 @@ class IndexService:
         if repo:
             return " AND r.name = ?", [repo]
         return "", []
+
+    def _kind_chunk_filter(self, kind_filter: str | None) -> tuple[str, list[Any]]:
+        if kind_filter is None:
+            return "", []
+        return (
+            """
+             AND EXISTS (
+                SELECT 1
+                FROM symbols kind_symbols
+                WHERE kind_symbols.chunk_id = c.id
+                  AND lower(kind_symbols.kind) = ?
+             )
+            """,
+            [kind_filter],
+        )
 
     def _repo_summaries(
         self,
@@ -980,6 +1021,8 @@ class IndexService:
         query: str,
         repo_filter: str,
         repo_params: list[Any],
+        kind_sql: str,
+        kind_params: list[Any],
     ) -> None:
         fts_query = _fts_query(query)
         if not fts_query:
@@ -1000,11 +1043,11 @@ class IndexService:
             FROM chunks_fts
             JOIN chunks c ON c.id = chunks_fts.chunk_id
             JOIN repos r ON c.repo_id = r.id
-            WHERE chunks_fts MATCH ?{repo_filter}
+            WHERE chunks_fts MATCH ?{repo_filter}{kind_sql}
             ORDER BY bm25_score
             LIMIT 100
             """,
-            [fts_query, *repo_params],
+            [fts_query, *repo_params, *kind_params],
         ).fetchall()
         for idx, row in enumerate(rows):
             candidate = self._candidate(candidates, row)
@@ -1019,6 +1062,8 @@ class IndexService:
         repo_filter: str,
         repo_params: list[Any],
         limit: int,
+        kind_sql: str,
+        kind_params: list[Any],
     ) -> str:
         if self._vector_table_readable(conn, len(query_embedding)):
             # vec0 KNN requires an explicit k constraint inside the virtual-table
@@ -1047,10 +1092,10 @@ class IndexService:
                     JOIN chunk_vector_map m ON m.rowid = v.rowid
                     JOIN chunks c ON c.id = m.chunk_id
                     JOIN repos r ON c.repo_id = r.id
-                    WHERE 1=1{repo_filter}
+                    WHERE 1=1{repo_filter}{kind_sql}
                     ORDER BY v.distance
                     """,
-                    [sqlite_vec.serialize_float32(query_embedding), k, *repo_params],
+                    [sqlite_vec.serialize_float32(query_embedding), k, *repo_params, *kind_params],
                 ).fetchall()
                 for row in rows:
                     candidate = self._candidate(candidates, row)
@@ -1062,8 +1107,8 @@ class IndexService:
                 pass
 
         rows = conn.execute(
-            self._base_candidate_sql(f"WHERE c.embedding_json != ''{repo_filter}"),
-            repo_params,
+            self._base_candidate_sql(f"WHERE c.embedding_json != ''{repo_filter}{kind_sql}"),
+            [*repo_params, *kind_params],
         ).fetchall()
         for row in rows:
             embedding = json.loads(row["embedding_json"])
@@ -1082,14 +1127,16 @@ class IndexService:
         query: str,
         repo_filter: str,
         repo_params: list[Any],
+        kind_sql: str,
+        kind_params: list[Any],
     ) -> None:
         query_lower = query.lower().strip()
         tokens = _tokenize(query)
         if not tokens and len(query_lower) < 3:
             return
         rows = conn.execute(
-            self._base_candidate_sql(f"WHERE 1=1{repo_filter}"),
-            repo_params,
+            self._base_candidate_sql(f"WHERE 1=1{repo_filter}{kind_sql}"),
+            [*repo_params, *kind_params],
         ).fetchall()
         for row in rows:
             path_lower = row["path"].lower()

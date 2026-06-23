@@ -66,3 +66,50 @@ async def test_mcp_lists_tools_and_returns_status(
                 }
             ]
             assert repos[0]["updated_at"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_search_accepts_kind_filter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = os.environ.copy()
+    db_path = tmp_path / "mcp.db"
+    env["LOCAL_CODE_INDEXER_DB_PATH"] = str(db_path)
+    env["LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS"] = "1"
+    monkeypatch.setenv("LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS", "1")
+
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "model.py").write_text("class LoginTokenRecord:\n    pass\n")
+    (repo / "src" / "handler.py").write_text("def login_token_handler(token):\n    return token\n")
+    service = IndexService(db_path)
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "local_code_indexer", "mcp"],
+        env=env,
+    )
+
+    async with stdio_client(params) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            tools = await session.list_tools()
+            search_tool = next(tool for tool in tools.tools if tool.name == "code_index_search")
+            assert "kind" in search_tool.inputSchema["properties"]
+
+            result = await session.call_tool(
+                "code_index_search",
+                {"query": "login token", "repo": "demo", "limit": 10, "kind": "class"},
+            )
+            payload = json.loads(result.content[0].text)
+            assert [item["path"] for item in payload] == ["src/model.py"]
+
+            result = await session.call_tool(
+                "code_index_search",
+                {"query": "login token", "repo": "demo", "limit": 10, "kind": "function"},
+            )
+            payload = json.loads(result.content[0].text)
+            assert [item["path"] for item in payload] == ["src/handler.py"]

@@ -122,6 +122,31 @@ def test_search_accepts_lang_filter(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert json.loads(capsys.readouterr().out) == []
 
 
+def test_search_accepts_kind_filter(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "model.py").write_text("class LoginTokenRecord:\n    pass\n")
+    (repo / "src" / "handler.py").write_text("def login_token_handler(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo"])
+    capsys.readouterr()
+
+    main(["search", "login token", "--repo", "demo", "--limit", "10"])
+    unfiltered = json.loads(capsys.readouterr().out)
+    assert {result["path"] for result in unfiltered} == {"src/handler.py", "src/model.py"}
+
+    main(["search", "login token", "--repo", "demo", "--limit", "10", "--kind", "class"])
+    filtered = json.loads(capsys.readouterr().out)
+    assert [result["path"] for result in filtered] == ["src/model.py"]
+
+    main(["search", "login token", "--repo", "demo", "--limit", "10", "--kind", "function"])
+    filtered = json.loads(capsys.readouterr().out)
+    assert [result["path"] for result in filtered] == ["src/handler.py"]
+
+    main(["search", "login token", "--repo", "demo", "--kind", "constant"])
+    assert json.loads(capsys.readouterr().out) == []
+
+
 def test_reindex_all_outputs_registered_repo_results(
     tmp_path: Path,
     capsys: pytest.CaptureFixture,

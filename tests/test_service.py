@@ -133,6 +133,56 @@ def test_search_lang_filter_applies_to_merged_hybrid_candidates_before_limit(tmp
     ]
 
 
+def test_search_kind_filter_uses_symbol_rows_before_limit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/model.py", "class LoginTokenRecord:\n    pass\n")
+    write(repo / "src/handler.py", "def login_token_handler(token):\n    return token\n")
+    write(
+        repo / "src/client.py",
+        "class LoginClient:\n"
+        "    def login_token(self, token):\n"
+        "        return token\n",
+    )
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    unfiltered = service.search("login token", repo="demo", mode="hybrid", limit=10)
+    assert {result["path"] for result in unfiltered} == {
+        "src/client.py",
+        "src/handler.py",
+        "src/model.py",
+    }
+    assert service.search("login token", repo="demo", mode="hybrid", limit=10, kind=None) == unfiltered
+    assert service.search("login token", repo="demo", mode="hybrid", limit=10, kind="") == unfiltered
+
+    assert [result["path"] for result in service.search("login token", repo="demo", kind="function")] == [
+        "src/handler.py"
+    ]
+    assert [result["path"] for result in service.search("login token", repo="demo", kind="METHOD")] == [
+        "src/client.py"
+    ]
+    assert {result["path"] for result in service.search("login token", repo="demo", kind="class")} == {
+        "src/client.py",
+        "src/model.py",
+    }
+
+
+def test_search_unknown_kind_does_not_match_symbol_names(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/constants.py", "def constant():\n    return 'constant value'\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    assert [result["path"] for result in service.search("constant", repo="demo", kind="function")] == [
+        "src/constants.py"
+    ]
+    assert service.search("constant", repo="demo", kind="constant") == []
+
+
 def test_list_files_accepts_lang_filter(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "src/auth.py", "def login(token):\n    return token\n")
