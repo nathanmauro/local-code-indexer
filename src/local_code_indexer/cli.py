@@ -47,6 +47,26 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--lang", default="")
     search.add_argument("--kind", default="")
 
+    symbols = sub.add_parser("symbols", help="Search indexed symbols.")
+    symbols.add_argument("query", nargs="?", default="")
+    symbols.add_argument("--repo", default="")
+    symbols.add_argument("--path", default="")
+    symbols.add_argument("--limit", type=int, default=50)
+    symbols.add_argument("--lang", default="")
+    symbols.add_argument("--kind", default="")
+
+    list_files = sub.add_parser("list-files", help="List indexed files.")
+    list_files.add_argument("--repo", default="")
+    list_files.add_argument("--glob", default="")
+    list_files.add_argument("--limit", type=int, default=50)
+    list_files.add_argument("--lang", default="")
+
+    read_file = sub.add_parser("read-file", help="Read an indexed repo-relative file range.")
+    read_file.add_argument("repo")
+    read_file.add_argument("path")
+    read_file.add_argument("--start-line", type=int, default=None)
+    read_file.add_argument("--end-line", type=int, default=None)
+
     status = sub.add_parser("status", help="Show index status.")
     status.add_argument("--repo", default="")
 
@@ -104,6 +124,35 @@ def main(argv: list[str] | None = None) -> None:
                     kind=args.kind or None,
                 )
             )
+        elif args.command == "symbols":
+            _print_json(
+                service.symbols(
+                    repo=args.repo or None,
+                    query=args.query or None,
+                    path=args.path or None,
+                    limit=args.limit,
+                    lang=args.lang or None,
+                    kind=args.kind or None,
+                )
+            )
+        elif args.command == "list-files":
+            _print_json(
+                service.list_files(
+                    repo=args.repo or None,
+                    glob=args.glob or None,
+                    limit=args.limit,
+                    lang=args.lang or None,
+                )
+            )
+        elif args.command == "read-file":
+            _print_json(
+                service.read_file(
+                    repo=args.repo,
+                    path=args.path,
+                    start_line=args.start_line,
+                    end_line=args.end_line,
+                )
+            )
         elif args.command == "status":
             _print_json(service.status(repo=args.repo or None))
         elif args.command == "list-repos":
@@ -120,6 +169,6 @@ def main(argv: list[str] | None = None) -> None:
                 _print_json(codex_mcp_config(db_path))
         else:  # pragma: no cover
             parser.error(f"unknown command {args.command}")
-    except ValueError as error:
+    except (ValueError, FileNotFoundError) as error:
         print(f"error: {error}", file=sys.stderr)
         raise SystemExit(1) from error

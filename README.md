@@ -13,6 +13,9 @@ local-code-indexer init
 local-code-indexer index <repo_path> [--name NAME]
 local-code-indexer watch <repo_path> [--name NAME] [--interval SECONDS]
 local-code-indexer search <query> [--repo NAME] [--limit N] [--mode hybrid|lexical|vector] [--path GLOB] [--lang LANG] [--kind KIND]
+local-code-indexer symbols [query] [--repo NAME] [--path PATH] [--limit N] [--lang LANG] [--kind KIND]
+local-code-indexer list-files [--repo NAME] [--glob GLOB] [--limit N] [--lang LANG]
+local-code-indexer read-file <repo> <path> [--start-line N] [--end-line N]
 local-code-indexer status [--repo NAME]
 local-code-indexer list-repos
 local-code-indexer reindex-all
@@ -26,6 +29,10 @@ basename; indexing a second directory whose basename collides with an existing r
 an error asking for an explicit `--name`. Re-indexing the same directory with a new `--name`
 renames the repo in place. `remove <name>` deletes a repo and all of its indexed data.
 `reindex-all` refreshes every registered repo and skips stored paths that no longer exist.
+
+Read-side commands mirror the MCP retrieval tools: `symbols` searches indexed symbols by repo,
+symbol text, path, language, and kind; `list-files` lists indexed files by repo, glob, and
+language; `read-file` reads an indexed repo-relative file or line range.
 
 `watch` polls and re-indexes on an interval; a failed pass logs to stderr and keeps polling.
 Indexing is incremental: files with an unchanged content hash are skipped when their existing

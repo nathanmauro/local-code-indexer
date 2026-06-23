@@ -147,6 +147,96 @@ def test_search_accepts_kind_filter(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert json.loads(capsys.readouterr().out) == []
 
 
+def test_symbols_command_accepts_filters(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "model.py").write_text("class LoginTokenRecord:\n    pass\n")
+    (repo / "src" / "handler.py").write_text("def login_token_handler(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo"])
+    capsys.readouterr()
+
+    main(
+        [
+            "symbols",
+            "login",
+            "--repo",
+            "demo",
+            "--path",
+            "src/handler.py",
+            "--limit",
+            "5",
+            "--lang",
+            "py",
+            "--kind",
+            "function",
+        ]
+    )
+    symbols = json.loads(capsys.readouterr().out)
+
+    assert symbols == [
+        {
+            "chunk_id": symbols[0]["chunk_id"],
+            "kind": "function",
+            "line": 1,
+            "path": "src/handler.py",
+            "repo": "demo",
+            "symbol": "login_token_handler",
+        }
+    ]
+
+
+def test_list_files_command_accepts_filters(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    auth_source = "def login(token):\n    return token\n"
+    (repo / "src" / "auth.py").write_text(auth_source)
+    (repo / "docs" / "auth.md").write_text("token docs\n")
+
+    main(["index", str(repo), "--name", "demo"])
+    capsys.readouterr()
+
+    main(["list-files", "--repo", "demo", "--glob", "src/*.py", "--limit", "10", "--lang", "py"])
+    files = json.loads(capsys.readouterr().out)
+
+    assert files == [
+        {
+            "file_hash": files[0]["file_hash"],
+            "indexed_at": files[0]["indexed_at"],
+            "language": "py",
+            "path": "src/auth.py",
+            "repo": "demo",
+            "size": len(auth_source),
+        }
+    ]
+
+
+def test_read_file_command_accepts_line_range(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "app.py").write_text(
+        "def login(token):\n"
+        "    normalized = token.strip()\n"
+        "    return normalized\n"
+    )
+
+    main(["index", str(repo), "--name", "demo"])
+    capsys.readouterr()
+
+    main(["read-file", "demo", "src/app.py", "--start-line", "2", "--end-line", "3"])
+    file_range = json.loads(capsys.readouterr().out)
+
+    assert file_range == {
+        "content": "    normalized = token.strip()\n    return normalized",
+        "end_line": 3,
+        "file_hash": file_range["file_hash"],
+        "path": "src/app.py",
+        "repo": "demo",
+        "start_line": 2,
+    }
+
+
 def test_reindex_all_outputs_registered_repo_results(
     tmp_path: Path,
     capsys: pytest.CaptureFixture,
