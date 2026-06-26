@@ -24,6 +24,12 @@ local-code-indexer mcp-config --client codex|claude
 local-code-indexer mcp
 ```
 
+Read-side query commands (`search`, `symbols`, `list-files`, `list-repos`, `status`, and
+`read-file`) default to compact human-readable output. Pass `--json` to any subcommand, such as
+`local-code-indexer search token --json`, to print the machine-readable JSON payload. Mutation and
+setup commands keep their existing JSON output by default; for them `--json` is accepted as a
+no-op compatibility flag.
+
 Repos are identified by their resolved directory path. The default name is the directory
 basename; indexing a second directory whose basename collides with an existing repo fails with
 an error asking for an explicit `--name`. Re-indexing the same directory with a new `--name`
