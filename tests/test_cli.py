@@ -34,11 +34,23 @@ def test_index_remove_roundtrip(tmp_path: Path, capsys: pytest.CaptureFixture) -
 
     main(["index", str(repo), "--name", "demo", "--json"])
     indexed = json.loads(capsys.readouterr().out)
-    assert indexed["indexed_files"] == 1
+    assert indexed == {
+        "db_path": indexed["db_path"],
+        "degraded": False,
+        "deleted_files": 0,
+        "embedded_chunks": 0,
+        "embedding_failures": 0,
+        "indexed_chunks": 1,
+        "indexed_files": 1,
+        "path": str(repo.resolve()),
+        "repo": "demo",
+        "skipped_files": 0,
+        "unchanged_files": 0,
+    }
 
     main(["remove", "demo", "--json"])
     removed = json.loads(capsys.readouterr().out)
-    assert removed["repo"] == "demo"
+    assert removed == {"deleted_files": 1, "repo": "demo"}
 
     main(["status", "--json"])
     status = json.loads(capsys.readouterr().out)
@@ -299,6 +311,103 @@ def test_reindex_all_skips_missing_path_without_aborting(
     }
     assert by_repo["present"]["indexed_files"] == 1
     assert by_repo["present"]["path"] == str(present.resolve())
+
+
+def test_index_defaults_to_human_readable_output(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def run():\n    return 'ok'\n")
+
+    main(["index", str(repo), "--name", "demo"])
+    output = capsys.readouterr().out
+
+    assert output.startswith("Indexed demo ")
+    assert f"path={repo.resolve()}" in output
+    assert "indexed_files=1" in output
+    assert "unchanged_files=0" in output
+    assert "skipped_files=0" in output
+    assert "deleted_files=0" in output
+    assert "embedded_chunks=0" in output
+    assert "embedding_failures=0" in output
+    assert not output.lstrip().startswith("{")
+
+
+def test_index_result_renderer_marks_degraded(capsys: pytest.CaptureFixture) -> None:
+    from local_code_indexer.cli import _print_index_result
+
+    _print_index_result(
+        {
+            "repo": "demo",
+            "path": "/tmp/demo",
+            "indexed_files": 2,
+            "indexed_chunks": 3,
+            "unchanged_files": 4,
+            "skipped_files": 5,
+            "deleted_files": 6,
+            "embedded_chunks": 7,
+            "embedding_failures": 8,
+            "degraded": True,
+            "db_path": "/tmp/index.db",
+        }
+    )
+    output = capsys.readouterr().out
+
+    assert "Indexed demo " in output
+    assert "path=/tmp/demo" in output
+    assert "indexed_files=2" in output
+    assert "unchanged_files=4" in output
+    assert "skipped_files=5" in output
+    assert "deleted_files=6" in output
+    assert "embedded_chunks=7" in output
+    assert "embedding_failures=8" in output
+    assert "DEGRADED" in output
+
+
+def test_reindex_all_defaults_to_human_readable_output(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    missing = tmp_path / "missing"
+    missing.mkdir()
+    (missing / "gone.py").write_text("def gone():\n    return 'old'\n")
+    present = tmp_path / "present"
+    present.mkdir()
+    (present / "stay.py").write_text("def stay():\n    return 'old'\n")
+
+    main(["index", str(missing), "--name", "missing", "--json"])
+    capsys.readouterr()
+    main(["index", str(present), "--name", "present", "--json"])
+    capsys.readouterr()
+    shutil.rmtree(missing)
+    (present / "stay.py").write_text("def stay():\n    return 'new'\n")
+
+    main(["reindex-all"])
+    output = capsys.readouterr().out
+
+    assert f"missing path={missing.resolve()} skipped=True error=path missing" in output
+    assert f"present path={present.resolve()}" in output
+    assert "indexed_files=1" in output
+    assert "unchanged_files=0" in output
+    assert "skipped_files=0" in output
+    assert "deleted_files=0" in output
+    assert "embedded_chunks=0" in output
+    assert "embedding_failures=0" in output
+    assert "reindexed: 1" in output
+    assert not output.lstrip().startswith("{")
+
+
+def test_remove_defaults_to_human_readable_output(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def run():\n    return 'ok'\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["remove", "demo"])
+    output = capsys.readouterr().out
+
+    assert output == "Removed demo (1 files).\n"
 
 
 def test_repo_name_conflict_exits_nonzero(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
