@@ -481,6 +481,69 @@ def test_empty_read_side_results_print_friendly_line(tmp_path: Path, capsys: pyt
     main(["search", "missing", "--repo", "demo"])
     assert capsys.readouterr().out == "No results.\n"
 
+    main(["symbols", "missing", "--repo", "demo"])
+    assert capsys.readouterr().out == "No results.\n"
+
+    main(["list-files", "--repo", "demo", "--glob", "missing/*"])
+    assert capsys.readouterr().out == "No results.\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["search", "login", "--repo", "missing"],
+        ["symbols", "login", "--repo", "missing"],
+        ["list-files", "--repo", "missing"],
+    ],
+)
+def test_read_side_commands_reject_unknown_repo(
+    command: list[str],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(command)
+
+    assert excinfo.value.code == 1
+    error = capsys.readouterr().err
+    assert "unknown repo: missing" in error
+    assert "indexed repos: demo" in error
+
+
+def test_read_file_distinguishes_unknown_repo_from_missing_file(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["read-file", "missing", "app.py"])
+
+    assert excinfo.value.code == 1
+    unknown_repo_error = capsys.readouterr().err
+    assert "unknown repo: missing" in unknown_repo_error
+    assert "indexed repos: demo" in unknown_repo_error
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["read-file", "demo", "missing.py"])
+
+    assert excinfo.value.code == 1
+    missing_file_error = capsys.readouterr().err
+    assert "demo:missing.py is not indexed" in missing_file_error
+    assert "unknown repo" not in missing_file_error
+
 
 def test_json_flag_preserves_search_json_shape(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     repo = tmp_path / "repo"

@@ -846,14 +846,16 @@ class IndexService:
         kind: str | None = None,
     ) -> list[dict]:
         self.init()
-        if not query or not query.strip():
-            return []
-        limit = max(1, min(int(limit), 100))
-        mode = mode or "hybrid"
-        kind_filter = _normalize_kind_filter(kind)
-        kind_sql, kind_params = self._kind_chunk_filter(kind_filter)
-        self.last_vector_backend = None
         with self._session() as conn:
+            if repo:
+                self._require_known_repo(conn, repo)
+            if not query or not query.strip():
+                return []
+            limit = max(1, min(int(limit), 100))
+            mode = mode or "hybrid"
+            kind_filter = _normalize_kind_filter(kind)
+            kind_sql, kind_params = self._kind_chunk_filter(kind_filter)
+            self.last_vector_backend = None
             repo_filter, repo_params = self._repo_filter(repo)
             candidates: dict[str, dict[str, Any]] = {}
             if mode in {"hybrid", "lexical"}:
@@ -901,6 +903,14 @@ class IndexService:
         if repo:
             return " AND r.name = ?", [repo]
         return "", []
+
+    def _require_known_repo(self, conn: sqlite3.Connection, repo: str | None) -> None:
+        if not repo:
+            return
+        repos = [row["name"] for row in conn.execute("SELECT name FROM repos ORDER BY name")]
+        if repo not in repos:
+            available = ", ".join(repos) or "(none)"
+            raise ValueError(f"unknown repo: {repo}. indexed repos: {available}")
 
     def _kind_chunk_filter(self, kind_filter: str | None) -> tuple[str, list[Any]]:
         if kind_filter is None:
@@ -1190,6 +1200,8 @@ class IndexService:
         limit = max(1, min(int(limit), 500))
         lang_filter = _normalize_lang_filter(lang)
         with self._session() as conn:
+            if repo:
+                self._require_known_repo(conn, repo)
             repo_filter, repo_params = self._repo_filter(repo)
             rows = conn.execute(
                 f"""
@@ -1227,6 +1239,7 @@ class IndexService:
         if clean_path.startswith("../") or clean_path == "..":
             raise ValueError("path must be repo-relative")
         with self._session() as conn:
+            self._require_known_repo(conn, repo)
             row = conn.execute(
                 """
                 SELECT r.name AS repo, f.path, f.content, f.file_hash
@@ -1288,6 +1301,8 @@ class IndexService:
             conditions.append("lower(s.kind) = ?")
             params.append(kind_filter)
         with self._session() as conn:
+            if repo:
+                self._require_known_repo(conn, repo)
             rows = conn.execute(
                 f"""
                 SELECT r.name AS repo, s.symbol, s.kind, s.path, s.line, s.chunk_id
