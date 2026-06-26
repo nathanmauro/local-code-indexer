@@ -109,6 +109,41 @@ def _print_read_file(result: dict) -> None:
     print(result["content"])
 
 
+def _index_result_fields(result: dict) -> str:
+    return (
+        f"path={result['path']} "
+        f"indexed_files={result['indexed_files']} "
+        f"unchanged_files={result['unchanged_files']} "
+        f"skipped_files={result['skipped_files']} "
+        f"deleted_files={result['deleted_files']} "
+        f"indexed_chunks={result['indexed_chunks']} "
+        f"embedded_chunks={result['embedded_chunks']} "
+        f"embedding_failures={result['embedding_failures']} "
+        f"degraded={result['degraded']}"
+    )
+
+
+def _degraded_marker(result: dict) -> str:
+    return " DEGRADED" if result.get("degraded") else ""
+
+
+def _print_index_result(result: dict) -> None:
+    print(f"Indexed {result['repo']} {_index_result_fields(result)}{_degraded_marker(result)}")
+
+
+def _print_reindex_all(result: dict) -> None:
+    for repo in result["repos"]:
+        if repo.get("skipped"):
+            print(f"{repo['repo']} path={repo['path']} skipped=True error={repo['error']}")
+            continue
+        print(f"{repo['repo']} {_index_result_fields(repo)}{_degraded_marker(repo)}")
+    print(f"reindexed: {result['reindexed']}")
+
+
+def _print_remove(result: dict) -> None:
+    print(f"Removed {result['repo']} ({result['deleted_files']} files).")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="local-code-indexer")
     parser.add_argument(
@@ -223,13 +258,15 @@ def main(argv: list[str] | None = None) -> None:
     service = _service()
     try:
         if args.command == "init":
-            _print_json(service.status())
+            _print_json_or_text(service.status(), args.json_output, _print_status)
         elif args.command == "index":
-            _print_json(service.index_repo(Path(args.repo_path), name=args.name or None))
+            result = service.index_repo(Path(args.repo_path), name=args.name or None)
+            _print_json_or_text(result, args.json_output, _print_index_result)
         elif args.command == "watch":
             while True:
                 try:
-                    _print_json(service.index_repo(Path(args.repo_path), name=args.name or None))
+                    result = service.index_repo(Path(args.repo_path), name=args.name or None)
+                    _print_json_or_text(result, args.json_output, _print_index_result)
                 except Exception as error:  # keep polling through transient failures
                     print(f"watch: index pass failed: {error}", file=sys.stderr)
                 time.sleep(args.interval)
@@ -277,9 +314,9 @@ def main(argv: list[str] | None = None) -> None:
             results = service.list_repos()
             _print_json_or_text(results, args.json_output, _print_list_repos)
         elif args.command == "reindex-all":
-            _print_json(service.reindex_all())
+            _print_json_or_text(service.reindex_all(), args.json_output, _print_reindex_all)
         elif args.command == "remove":
-            _print_json(service.remove_repo(args.name))
+            _print_json_or_text(service.remove_repo(args.name), args.json_output, _print_remove)
         elif args.command == "mcp-config":
             db_path = args.db_path or str(db_path_from_env())
             if args.client == "claude":

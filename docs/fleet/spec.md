@@ -2,12 +2,18 @@
 project: local-code-indexer
 tier: prototype
 status: doing
-current_round: 1
+current_round: 2
 verify_cmd: ".venv/bin/python -m pytest -q && .venv/bin/ruff check ."
 push_allowed: true
 danger: "useability"
 branch_lineage:
-  []
+  - round: 1
+    branch: "fleet/round-1-human-readable-cli-output"
+    base: "next"
+    pr: "https://github.com/nathanmauro/local-code-indexer/pull/1"
+    commit: "e81ed25"
+    status: "review"
+    note: ""
 ---
 
 # local-code-indexer — fleet spec
@@ -23,32 +29,38 @@ prototype
 ## Acceptance bar
 
 - verify: `.venv/bin/python -m pytest -q && .venv/bin/ruff check .` green
-- A global `--json` flag is accepted (works for every subcommand via a shared argparse parent parser so `search foo --json` works) and, when set, produces the EXACT current JSON output: print(json.dumps(payload, indent=2, sort_keys=True)).
-- Without --json, the read-side query commands print compact human-readable text: `search` (repo/path:line-range, score+reason, symbols, snippet per hit), `symbols`, `list-files`, `list-repos`, `status`, and `read-file` (plain file content with optional line numbers).
-- Empty results render a friendly line (e.g. 'No results.') instead of '[]'.
-- Mutation/setup commands (init, index, watch, reindex-all, remove, mcp-config) keep their CURRENT JSON-via-_print_json default output unchanged and MUST still accept/honor --json without regressing machine output (--json is effectively a no-op for them).
-- New tests in tests/test_cli.py assert: (a) human output contains expected substrings for search + status, (b) the empty-result friendly line, (c) `--json` still yields json.loads-parseable output matching prior shape.
-- All pre-existing test_cli.py tests that json.loads(stdout) (21 sites) are updated to pass `--json`, and the FULL suite stays green; ruff stays clean.
-- README CLI section notes the default is human-readable and `--json` gives machine output.
+- init, index, watch, reindex-all, and remove print compact human-readable text by DEFAULT (no --json). `mcp-config` is INTENTIONALLY LEFT printing JSON and must NOT be converted.
+- `index`/`reindex-all` human output surfaces the useability-relevant fields from the result dict: repo/path, indexed_files, unchanged_files, skipped_files, deleted_files, embedded_chunks, embedding_failures, and a clear 'degraded' indicator when degraded is true.
+- `reindex-all` renders one line per repo (including path-missing skipped repos: 'skipped: path missing') plus a reindexed count.
+- `remove` renders e.g. 'Removed <repo> (<n> files).'; `init` renders a brief status-style summary (may reuse the existing _print_status renderer).
+- `watch` prints a human one-line summary per pass by default and the JSON blob per pass when --json is set; transient failure stderr logging is unchanged.
+- Passing `--json` to ANY of init/index/watch/reindex-all/remove reproduces the EXACT prior output: print(json.dumps(payload, indent=2, sort_keys=True)) via _print_json — same shape the read-side --json uses. mcp-config output is unchanged.
+- New/updated tests in tests/test_cli.py assert human substrings for index (e.g. an indexed_files count / a degraded marker), reindex-all, and remove, AND assert that --json still yields json.loads-parseable output of the prior shape. All pre-existing tests stay green; ruff stays clean.
+- README CLI section updated: state that init/index/watch/reindex-all/remove are now human-readable by default with --json for machine output, while mcp-config still emits JSON (remove the blanket 'Mutation and setup commands keep their existing JSON output by default' wording but keep mcp-config's JSON accurately described).
 
 ## Decided
 
-
-
 ## Deferred
-
-
 
 ## Rounds
 
-### Round 1 — Human-readable CLI output with a --json escape hatch
-why: Context hint is 'useability' and spec.danger is 'useability'. Recent work completed the read-side retrieval surface (search/symbols/list-files/read-file/status/list-repos with filters), but cli.py only ever prints raw indented JSON via _print_json (line 23). For a human running `local-code-indexer search 'auth'` in a terminal, a JSON blob is poor UX. No ROADMAP/plans/TODO exist to point elsewhere, and the audit-2026-06-19 doc only covers embedding/backend integrity, so README + git history are the spec. Making read-side commands human-readable by default while keeping --json for scripting/MCP-adjacent use is the highest-value, well-scoped next slice and is one coherent story: CLI rendering + tests.
+### Round 1 — fleet/round-1-human-readable-cli-output
+base: next
+branch: fleet/round-1-human-readable-cli-output
+pr: https://github.com/nathanmauro/local-code-indexer/pull/1
+commit: e81ed25
+status: review
+note:
+
+### Round 2 — Human-readable output for mutation/setup commands with --json escape hatch (mcp-config stays JSON)
+why: Context hint and spec.danger are both 'useability'. Round 1 (e81ed25, PR #1) made the read-side commands human-readable but deliberately left the write/setup commands (init, index, watch, reindex-all, remove) printing raw JSON via _print_json in cli.py main(). `index` is the FIRST command a human runs and its degraded/embedding_failures/skipped signals are exactly the useability payload — yet it dumps a JSON blob. Finishing the human-readable story across these commands is the direct, well-scoped continuation per docs/fleet/spec.md (empty Decided/Deferred, so not blocked). `mcp-config` is intentionally excluded because it emits a client-config blob meant to be pasted verbatim into a config file, where JSON is the correct format. Existing tests already pass --json on these commands' assertion calls, so the work is low-risk.
 acceptance:
-- A global `--json` flag is accepted (works for every subcommand via a shared argparse parent parser so `search foo --json` works) and, when set, produces the EXACT current JSON output: print(json.dumps(payload, indent=2, sort_keys=True)).
-- Without --json, the read-side query commands print compact human-readable text: `search` (repo/path:line-range, score+reason, symbols, snippet per hit), `symbols`, `list-files`, `list-repos`, `status`, and `read-file` (plain file content with optional line numbers).
-- Empty results render a friendly line (e.g. 'No results.') instead of '[]'.
-- Mutation/setup commands (init, index, watch, reindex-all, remove, mcp-config) keep their CURRENT JSON-via-_print_json default output unchanged and MUST still accept/honor --json without regressing machine output (--json is effectively a no-op for them).
-- New tests in tests/test_cli.py assert: (a) human output contains expected substrings for search + status, (b) the empty-result friendly line, (c) `--json` still yields json.loads-parseable output matching prior shape.
-- All pre-existing test_cli.py tests that json.loads(stdout) (21 sites) are updated to pass `--json`, and the FULL suite stays green; ruff stays clean.
-- README CLI section notes the default is human-readable and `--json` gives machine output.
-key files: src/local_code_indexer/cli.py, tests/test_cli.py, src/local_code_indexer/service.py (return shapes: search/symbols/list_files/list_repos/status/read_file — read-only reference), README.md
+- init, index, watch, reindex-all, and remove print compact human-readable text by DEFAULT (no --json). `mcp-config` is INTENTIONALLY LEFT printing JSON and must NOT be converted.
+- `index`/`reindex-all` human output surfaces the useability-relevant fields from the result dict: repo/path, indexed_files, unchanged_files, skipped_files, deleted_files, embedded_chunks, embedding_failures, and a clear 'degraded' indicator when degraded is true.
+- `reindex-all` renders one line per repo (including path-missing skipped repos: 'skipped: path missing') plus a reindexed count.
+- `remove` renders e.g. 'Removed <repo> (<n> files).'; `init` renders a brief status-style summary (may reuse the existing _print_status renderer).
+- `watch` prints a human one-line summary per pass by default and the JSON blob per pass when --json is set; transient failure stderr logging is unchanged.
+- Passing `--json` to ANY of init/index/watch/reindex-all/remove reproduces the EXACT prior output: print(json.dumps(payload, indent=2, sort_keys=True)) via _print_json — same shape the read-side --json uses. mcp-config output is unchanged.
+- New/updated tests in tests/test_cli.py assert human substrings for index (e.g. an indexed_files count / a degraded marker), reindex-all, and remove, AND assert that --json still yields json.loads-parseable output of the prior shape. All pre-existing tests stay green; ruff stays clean.
+- README CLI section updated: state that init/index/watch/reindex-all/remove are now human-readable by default with --json for machine output, while mcp-config still emits JSON (remove the blanket 'Mutation and setup commands keep their existing JSON output by default' wording but keep mcp-config's JSON accurately described).
+key files: src/local_code_indexer/cli.py, tests/test_cli.py, src/local_code_indexer/service.py (return shapes index_repo, reindex_all, remove_repo, status — read-only reference), README.md
