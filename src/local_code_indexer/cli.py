@@ -62,6 +62,25 @@ def _empty_filter_hint_lines(
     return hints
 
 
+def _vector_skip_hint_line(reason: str | None) -> str | None:
+    if reason == "embeddings-disabled":
+        return (
+            "note: vector search unavailable: embeddings are disabled "
+            "(LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS=1). try --mode lexical."
+        )
+    if reason == "query-embedding-failed":
+        return (
+            "note: vector search unavailable: query embedding failed; "
+            "check the local embedding service, or try --mode lexical."
+        )
+    if reason == "no-embedded-chunks":
+        return (
+            "note: vector search unavailable: no embedded chunks are stored in the searched scope. "
+            "rerun `local-code-indexer index <repo_path>` with the embedding service up."
+        )
+    return None
+
+
 def _print_read_results(
     payload: list[dict],
     service: IndexService,
@@ -70,6 +89,7 @@ def _print_read_results(
     *,
     lang: str | None = None,
     kind: str | None = None,
+    vector_skip_reason: str | None = None,
 ) -> None:
     if json_output:
         _print_json(payload)
@@ -81,6 +101,9 @@ def _print_read_results(
         text_printer(payload)
         for line in _empty_filter_hint_lines(service, lang=lang, kind=kind):
             print(line)
+        vector_hint = _vector_skip_hint_line(vector_skip_reason)
+        if vector_hint is not None:
+            print(vector_hint)
         return
     text_printer(payload)
 
@@ -342,6 +365,9 @@ def main(argv: list[str] | None = None) -> None:
                 _print_search,
                 lang=args.lang or None,
                 kind=args.kind or None,
+                vector_skip_reason=(
+                    service.last_vector_skip_reason if args.mode == "vector" else None
+                ),
             )
         elif args.command == "symbols":
             results = service.symbols(

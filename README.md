@@ -41,6 +41,8 @@ language; `read-file` reads an indexed repo-relative file or line range.
 When the index is empty, empty read-side output points to `local-code-indexer index <repo_path>`; `status --repo`
 and `remove <name>` also error with the indexed-repos list for unknown repos.
 Human output also notes when an empty `--lang` or `--kind` filter matches no indexed values; JSON output remains unchanged.
+For `search --mode vector`, empty human output also notes when vector search could not run and
+suggests `--mode lexical` or re-indexing with embeddings available.
 
 `watch` polls and re-indexes on an interval; a failed pass logs to stderr and keeps polling.
 Indexing is incremental: files with an unchanged content hash are skipped when their existing
