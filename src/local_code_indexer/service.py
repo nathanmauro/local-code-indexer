@@ -1334,9 +1334,8 @@ class IndexService:
     def remove_repo(self, name: str) -> dict:
         self.init()
         with self._session() as conn:
+            self._require_known_repo(conn, name)
             row = conn.execute("SELECT id FROM repos WHERE name = ?", (name,)).fetchone()
-            if row is None:
-                raise ValueError(f"unknown repo: {name}")
             repo_id = int(row["id"])
             file_ids = [
                 int(file_row["id"])
@@ -1354,6 +1353,7 @@ class IndexService:
     def status(self, repo: str | None = None) -> dict:
         self.init()
         with self._session() as conn:
+            self._require_known_repo(conn, repo)
             repo_filter, repo_params = self._repo_filter(repo)
             repos = conn.execute(
                 f"SELECT COUNT(*) AS count FROM repos r WHERE 1=1{repo_filter}",
