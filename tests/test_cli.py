@@ -508,6 +508,130 @@ def test_empty_read_side_results_print_friendly_line(tmp_path: Path, capsys: pyt
     assert capsys.readouterr().out == "No results.\n"
 
 
+def test_unknown_search_lang_filter_prints_indexed_languages(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    (repo / "src" / "auth.py").write_text("def login(token):\n    return token\n")
+    (repo / "docs" / "auth.md").write_text("token docs\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "token", "--repo", "demo", "--lang", "rs"])
+
+    assert (
+        capsys.readouterr().out
+        == "No results.\nnote: --lang 'rs' matches nothing. indexed languages: md, py\n"
+    )
+
+
+def test_unknown_search_kind_filter_prints_indexed_kinds(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "model.py").write_text("class LoginTokenRecord:\n    pass\n")
+    (repo / "src" / "handler.py").write_text("def login_token_handler(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "login token", "--repo", "demo", "--kind", "constant"])
+
+    assert (
+        capsys.readouterr().out
+        == "No results.\nnote: --kind 'constant' matches nothing. indexed kinds: class, function\n"
+    )
+
+
+def test_unknown_search_lang_and_kind_filters_print_both_hints(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "handler.py").write_text("def login_token_handler(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "login token", "--repo", "demo", "--lang", "rs", "--kind", "constant"])
+
+    assert (
+        capsys.readouterr().out
+        == "No results.\n"
+        "note: --lang 'rs' matches nothing. indexed languages: py\n"
+        "note: --kind 'constant' matches nothing. indexed kinds: function\n"
+    )
+
+
+def test_unknown_symbols_filters_print_indexed_filter_values(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "model.py").write_text("class LoginTokenRecord:\n    pass\n")
+    (repo / "src" / "handler.py").write_text("def login_token_handler(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["symbols", "login", "--repo", "demo", "--lang", "rs"])
+    assert (
+        capsys.readouterr().out
+        == "No results.\nnote: --lang 'rs' matches nothing. indexed languages: py\n"
+    )
+
+    main(["symbols", "login", "--repo", "demo", "--kind", "constant"])
+    assert (
+        capsys.readouterr().out
+        == "No results.\nnote: --kind 'constant' matches nothing. indexed kinds: class, function\n"
+    )
+
+
+def test_unknown_list_files_lang_filter_prints_indexed_languages(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    (repo / "src" / "auth.py").write_text("def login(token):\n    return token\n")
+    (repo / "docs" / "auth.md").write_text("token docs\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["list-files", "--repo", "demo", "--lang", "rs"])
+
+    assert (
+        capsys.readouterr().out
+        == "No results.\nnote: --lang 'rs' matches nothing. indexed languages: md, py\n"
+    )
+
+
+def test_known_filter_with_no_results_prints_only_no_results(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "missing", "--repo", "demo", "--lang", "py"])
+
+    assert capsys.readouterr().out == "No results.\n"
+
+
 def test_empty_index_read_side_results_print_getting_started_hint(
     capsys: pytest.CaptureFixture,
 ) -> None:
@@ -543,6 +667,27 @@ def test_json_empty_results_stay_empty_arrays(capsys: pytest.CaptureFixture) -> 
     assert json.loads(capsys.readouterr().out) == []
 
     main(["list-repos", "--json"])
+    assert json.loads(capsys.readouterr().out) == []
+
+
+def test_json_empty_filter_results_stay_empty_arrays(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "login", "--repo", "demo", "--lang", "rs", "--json"])
+    assert json.loads(capsys.readouterr().out) == []
+
+    main(["symbols", "login", "--repo", "demo", "--kind", "constant", "--json"])
+    assert json.loads(capsys.readouterr().out) == []
+
+    main(["list-files", "--repo", "demo", "--lang", "rs", "--json"])
     assert json.loads(capsys.readouterr().out) == []
 
 

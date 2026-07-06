@@ -1228,6 +1228,32 @@ class IndexService:
         ]
         return results[:limit]
 
+    def list_languages(self) -> list[str]:
+        self.init()
+        with self._session() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT lower(language) AS language
+                FROM files
+                WHERE language != ''
+                ORDER BY language
+                """
+            ).fetchall()
+        return [row["language"] for row in rows]
+
+    def list_kinds(self) -> list[str]:
+        self.init()
+        with self._session() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT lower(kind) AS kind
+                FROM symbols
+                WHERE kind != ''
+                ORDER BY kind
+                """
+            ).fetchall()
+        return [row["kind"] for row in rows]
+
     def list_repos(self) -> list[dict]:
         self.init()
         with self._session() as conn:

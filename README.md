@@ -40,6 +40,7 @@ symbol text, path, language, and kind; `list-files` lists indexed files by repo,
 language; `read-file` reads an indexed repo-relative file or line range.
 When the index is empty, empty read-side output points to `local-code-indexer index <repo_path>`; `status --repo`
 and `remove <name>` also error with the indexed-repos list for unknown repos.
+Human output also notes when an empty `--lang` or `--kind` filter matches no indexed values; JSON output remains unchanged.
 
 `watch` polls and re-indexes on an interval; a failed pass logs to stderr and keeps polling.
 Indexing is incremental: files with an unchanged content hash are skipped when their existing
