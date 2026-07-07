@@ -4,13 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local-code-indexer"
-version = "0.1.0.dev0"
+dynamic = ["version"]
 description = "Fully local code indexing and MCP retrieval for private repositories."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Nathan Mauro" }]
 keywords = ["code-search", "mcp", "sqlite", "fts5", "sqlite-vec", "ollama"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+]
 dependencies = [
     "anyio>=4.0",
     "mcp>=1.10",
@@ -28,6 +33,14 @@ dev = [
 
 [project.scripts]
 local-code-indexer = "local_code_indexer.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/nathanmauro/local-code-indexer"
+Repository = "https://github.com/nathanmauro/local-code-indexer"
+Issues = "https://github.com/nathanmauro/local-code-indexer/issues"
+
+[tool.hatch.version]
+path = "src/local_code_indexer/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/local_code_indexer"]
