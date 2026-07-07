@@ -38,6 +38,7 @@ renames the repo in place. `remove <name>` deletes a repo and all of its indexed
 Read-side commands mirror the MCP retrieval tools: `symbols` searches indexed symbols by repo,
 symbol text, path, language, and kind; `list-files` lists indexed files by repo, glob, and
 language; `read-file` reads an indexed repo-relative file or line range.
+Read-side commands that target an unknown `--repo` exit with an error listing indexed repos.
 
 `watch` polls and re-indexes on an interval; a failed pass logs to stderr and keeps polling.
 Indexing is incremental: files with an unchanged content hash are skipped when their existing

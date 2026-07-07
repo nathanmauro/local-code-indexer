@@ -561,7 +561,8 @@ def test_index_with_new_name_renames_instead_of_duplicating(tmp_path: Path) -> N
 
     assert service.status()["repos"] == 1
     assert service.list_files(repo="renamed")
-    assert not service.list_files(repo="repo")
+    with pytest.raises(ValueError, match="unknown repo: repo"):
+        service.list_files(repo="repo")
     hits = [r["path"] for r in service.search("run", limit=10)]
     assert hits.count("app.py") == 1
 
