@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .config import db_path_from_env
 from .registration import claude_mcp_config, codex_mcp_config
-from .service import IndexService
+from .service import IndexService, _normalize_kind_filter, _normalize_lang_filter
 
 EMPTY_INDEX_HINT = "No repos indexed. Run `local-code-indexer index <repo_path>` to index one."
 
@@ -32,12 +32,55 @@ def _print_json_or_text(payload, json_output: bool, text_printer) -> None:
     text_printer(payload)
 
 
-def _print_read_results(payload: list[dict], service: IndexService, json_output: bool, text_printer) -> None:
+def _format_known_values(values: list[str]) -> str:
+    return ", ".join(values) or "(none)"
+
+
+def _empty_filter_hint_lines(
+    service: IndexService,
+    *,
+    lang: str | None = None,
+    kind: str | None = None,
+) -> list[str]:
+    hints = []
+    lang_filter = _normalize_lang_filter(lang)
+    if lang_filter is not None:
+        languages = service.list_languages()
+        if lang_filter not in languages:
+            hints.append(
+                f"note: --lang '{lang_filter}' matches nothing. "
+                f"indexed languages: {_format_known_values(languages)}"
+            )
+    kind_filter = _normalize_kind_filter(kind)
+    if kind_filter is not None:
+        kinds = service.list_kinds()
+        if kind_filter not in kinds:
+            hints.append(
+                f"note: --kind '{kind_filter}' matches nothing. "
+                f"indexed kinds: {_format_known_values(kinds)}"
+            )
+    return hints
+
+
+def _print_read_results(
+    payload: list[dict],
+    service: IndexService,
+    json_output: bool,
+    text_printer,
+    *,
+    lang: str | None = None,
+    kind: str | None = None,
+) -> None:
     if json_output:
         _print_json(payload)
         return
-    if not payload and not service.list_repos():
-        print(EMPTY_INDEX_HINT)
+    if not payload:
+        if not service.list_repos():
+            print(EMPTY_INDEX_HINT)
+            return
+        text_printer(payload)
+        for line in _empty_filter_hint_lines(service, lang=lang, kind=kind):
+            print(line)
         return
     text_printer(payload)
 
@@ -292,7 +335,14 @@ def main(argv: list[str] | None = None) -> None:
                 lang=args.lang or None,
                 kind=args.kind or None,
             )
-            _print_read_results(results, service, args.json_output, _print_search)
+            _print_read_results(
+                results,
+                service,
+                args.json_output,
+                _print_search,
+                lang=args.lang or None,
+                kind=args.kind or None,
+            )
         elif args.command == "symbols":
             results = service.symbols(
                 repo=args.repo or None,
@@ -302,7 +352,14 @@ def main(argv: list[str] | None = None) -> None:
                 lang=args.lang or None,
                 kind=args.kind or None,
             )
-            _print_read_results(results, service, args.json_output, _print_symbols)
+            _print_read_results(
+                results,
+                service,
+                args.json_output,
+                _print_symbols,
+                lang=args.lang or None,
+                kind=args.kind or None,
+            )
         elif args.command == "list-files":
             results = service.list_files(
                 repo=args.repo or None,
@@ -310,7 +367,13 @@ def main(argv: list[str] | None = None) -> None:
                 limit=args.limit,
                 lang=args.lang or None,
             )
-            _print_read_results(results, service, args.json_output, _print_list_files)
+            _print_read_results(
+                results,
+                service,
+                args.json_output,
+                _print_list_files,
+                lang=args.lang or None,
+            )
         elif args.command == "read-file":
             result = service.read_file(
                 repo=args.repo,

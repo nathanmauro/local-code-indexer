@@ -28,6 +28,13 @@ branch_lineage:
     commit: "7a11cd3"
     status: "review"
     note: ""
+  - round: 4
+    branch: "fleet/round-4-empty-index-guidance"
+    base: "fleet/round-3-unknown-repo-errors"
+    pr: "https://github.com/nathanmauro/local-code-indexer/pull/4"
+    commit: "27794aa"
+    status: "review"
+    note: "trajectory: intended keyFiles all covered; changed cli.py+service.py+tests/test_cli.py+README.md+docs/fleet/spec.md; tools.py/test_mcp_server.py verified unchanged-green as planned"
 ---
 
 # local-code-indexer — fleet spec
@@ -43,14 +50,15 @@ prototype
 ## Acceptance bar
 
 - verify: `.venv/bin/python -m pytest -q && .venv/bin/ruff check .` green
-- service.status calls _require_known_repo when a repo argument is provided (repo truthy); `status --repo nope` exits 1 via the existing CLI except-block with 'error: unknown repo: nope. indexed repos: ...' on stderr; status with no repo is unchanged (note cli.py `init` also calls service.status() with no repo — leave it alone).
-- service.remove_repo reuses the shared helper/message so `remove nope` also lists indexed repos; the existing test at tests/test_service.py:564 (pytest.raises match='unknown repo: repo', a regex search) stays green with the richer message.
-- When search/symbols/list-files return empty results AND the index contains zero repos, human-readable output includes a getting-started hint (e.g. "No repos indexed. Run `local-code-indexer index <repo_path>` to index one."); `list-repos` on an empty index prints the same hint instead of the generic 'No results.'
-- When at least one repo is indexed and a query simply has no matches, text output remains exactly 'No results.' (regression guard — test_cli.py:473-488 already asserts this with a demo repo indexed), and --json output for empty results remains [] (the hint is human-output-only; JSON payload shapes are unchanged).
-- MCP surface: code_index_status with an unknown repo now surfaces the ValueError (tools.py:130 passes `repo or None`; consistent with round-3 precedent for search/symbols/list_files); no hint text is added to any MCP JSON output; tests/test_mcp_server.py stays green (its status call passes no repo).
-- New tests in tests/test_cli.py cover: status --repo unknown exits 1 with 'unknown repo' + an indexed repo name on stderr; remove of an unknown repo lists indexed repos; search and list-repos on a fresh empty DB print the getting-started hint; a valid repo with no matches still prints 'No results.'; --json empty results are still [].
-- README CLI section gets a one-line note about the empty-index hint and that status/remove now error with the indexed-repos list on an unknown repo.
-- Verify green: .venv/bin/python -m pytest -q && .venv/bin/ruff check . (baseline is green: 94 tests + ruff clean)
+- Service gains list_languages() and list_kinds(): sorted distinct non-empty LOWERCASED values (SELECT DISTINCT lower(...)) from files.language and symbols.kind respectively — lowering is required because files.language stores the raw-cased suffix at index time (service.py:443) while filters compare lowercase; unit tests in tests/test_service.py including a mixed-case fixture.
+- CLI: when search/symbols/list-files human-readable output is empty, at least one repo is indexed, and a supplied --lang value (normalized via the same lstrip('.').lower() semantics as _normalize_lang_filter) is not in list_languages(), print 'No results.' plus a hint line naming the value and the indexed languages (e.g. "note: --lang 'rs' matches nothing. indexed languages: md, py, toml"); same for --kind vs list_kinds() on search/symbols. list-files only has --lang.
+- When supplied filter values DO exist in the index (or no filters given), empty output remains exactly 'No results.' — the existing guard test_empty_read_side_results_print_friendly_line (tests/test_cli.py:493-508) stays green.
+- Zero-repos case unchanged: EMPTY_INDEX_HINT still prints and takes precedence over filter hints (existing tests at tests/test_cli.py:511 and :526 stay green).
+- --json empty results remain [] with no hint text (tests/test_cli.py:535 test_json_empty_results_stay_empty_arrays stays green); MCP tools.py untouched; tests/test_mcp_server.py green unmodified.
+- Service filter semantics preserved: unknown lang/kind still return [] (test_service.py:117,183,202,221,253 unchanged and green).
+- New tests in tests/test_cli.py: search --lang unknown prints hint with real indexed language; search --kind unknown prints hint with indexed kinds; symbols and list-files analogs; known-lang-no-match prints exactly 'No results.'; --json stays [].
+- README gets a one-line note about the no-match filter hint.
+- Verify green: .venv/bin/python -m pytest -q && .venv/bin/ruff check . (baseline: 99 tests + ruff clean, confirmed)
 
 ## Decided
 
@@ -82,15 +90,24 @@ commit: 7a11cd3
 status: review
 note:
 
-### Round 4 — Empty-index getting-started guidance + unknown-repo validation for status and remove
-why: The fleet theme is useability (mirror danger='useability', context hint 'useability'). docs/fleet/spec.md Rounds show rounds 1-2 made output human-readable and round 3 added unknown-repo errors to search/symbols/list-files/read-file via _require_known_repo (service.py:907). Direct inspection shows the story is unfinished: service.status (service.py:1354) accepts any --repo and silently reports zeros, remove_repo (service.py:1339) still raises the bare 'unknown repo: <name>' without the indexed-repos list, and a first-run user who searches before indexing gets a bare 'No results.' indistinguishable from no matches. Completing the 'every empty/unknown state explains itself' story is the natural round-4 continuation; Decided/Deferred in the living spec are empty so nothing blocks it.
+### Round 4 — fleet/round-4-empty-index-guidance
+base: fleet/round-3-unknown-repo-errors
+branch: fleet/round-4-empty-index-guidance
+pr: https://github.com/nathanmauro/local-code-indexer/pull/4
+commit: 27794aa
+status: review
+note: trajectory: intended keyFiles all covered; changed cli.py+service.py+tests/test_cli.py+README.md+docs/fleet/spec.md; tools.py/test_mcp_server.py verified unchanged-green as planned
+
+### Round 4 — Explain no-match --lang/--kind filter values with indexed-value hints
+why: docs/fleet/spec.md Rounds 1-4 build one useability story: output is human-readable and every unknown/empty state explains itself (round 3 unknown repos, round 4 empty index + status/remove). Direct inspection confirms the last silent state: `search --lang rs` or `symbols --kind constant` against an index with no such language/kind prints a bare 'No results.' (cli.py _print_search/_print_symbols/_print_list_files via _print_read_results), indistinguishable from no matches. Service-layer errors are ruled out by pinned tests (test_service.py:117,183,202,221,253 assert [] for unknown lang/kind), so the round-4-consistent move is a human-output-only hint listing indexed languages/kinds. Decided/Deferred in the living spec are empty; nothing blocks it.
 acceptance:
-- service.status calls _require_known_repo when a repo argument is provided (repo truthy); `status --repo nope` exits 1 via the existing CLI except-block with 'error: unknown repo: nope. indexed repos: ...' on stderr; status with no repo is unchanged (note cli.py `init` also calls service.status() with no repo — leave it alone).
-- service.remove_repo reuses the shared helper/message so `remove nope` also lists indexed repos; the existing test at tests/test_service.py:564 (pytest.raises match='unknown repo: repo', a regex search) stays green with the richer message.
-- When search/symbols/list-files return empty results AND the index contains zero repos, human-readable output includes a getting-started hint (e.g. "No repos indexed. Run `local-code-indexer index <repo_path>` to index one."); `list-repos` on an empty index prints the same hint instead of the generic 'No results.'
-- When at least one repo is indexed and a query simply has no matches, text output remains exactly 'No results.' (regression guard — test_cli.py:473-488 already asserts this with a demo repo indexed), and --json output for empty results remains [] (the hint is human-output-only; JSON payload shapes are unchanged).
-- MCP surface: code_index_status with an unknown repo now surfaces the ValueError (tools.py:130 passes `repo or None`; consistent with round-3 precedent for search/symbols/list_files); no hint text is added to any MCP JSON output; tests/test_mcp_server.py stays green (its status call passes no repo).
-- New tests in tests/test_cli.py cover: status --repo unknown exits 1 with 'unknown repo' + an indexed repo name on stderr; remove of an unknown repo lists indexed repos; search and list-repos on a fresh empty DB print the getting-started hint; a valid repo with no matches still prints 'No results.'; --json empty results are still [].
-- README CLI section gets a one-line note about the empty-index hint and that status/remove now error with the indexed-repos list on an unknown repo.
-- Verify green: .venv/bin/python -m pytest -q && .venv/bin/ruff check . (baseline is green: 94 tests + ruff clean)
-key files: src/local_code_indexer/service.py, src/local_code_indexer/cli.py, tests/test_cli.py, tests/test_service.py, src/local_code_indexer/tools.py, tests/test_mcp_server.py, README.md
+- Service gains list_languages() and list_kinds(): sorted distinct non-empty LOWERCASED values (SELECT DISTINCT lower(...)) from files.language and symbols.kind respectively — lowering is required because files.language stores the raw-cased suffix at index time (service.py:443) while filters compare lowercase; unit tests in tests/test_service.py including a mixed-case fixture.
+- CLI: when search/symbols/list-files human-readable output is empty, at least one repo is indexed, and a supplied --lang value (normalized via the same lstrip('.').lower() semantics as _normalize_lang_filter) is not in list_languages(), print 'No results.' plus a hint line naming the value and the indexed languages (e.g. "note: --lang 'rs' matches nothing. indexed languages: md, py, toml"); same for --kind vs list_kinds() on search/symbols. list-files only has --lang.
+- When supplied filter values DO exist in the index (or no filters given), empty output remains exactly 'No results.' — the existing guard test_empty_read_side_results_print_friendly_line (tests/test_cli.py:493-508) stays green.
+- Zero-repos case unchanged: EMPTY_INDEX_HINT still prints and takes precedence over filter hints (existing tests at tests/test_cli.py:511 and :526 stay green).
+- --json empty results remain [] with no hint text (tests/test_cli.py:535 test_json_empty_results_stay_empty_arrays stays green); MCP tools.py untouched; tests/test_mcp_server.py green unmodified.
+- Service filter semantics preserved: unknown lang/kind still return [] (test_service.py:117,183,202,221,253 unchanged and green).
+- New tests in tests/test_cli.py: search --lang unknown prints hint with real indexed language; search --kind unknown prints hint with indexed kinds; symbols and list-files analogs; known-lang-no-match prints exactly 'No results.'; --json stays [].
+- README gets a one-line note about the no-match filter hint.
+- Verify green: .venv/bin/python -m pytest -q && .venv/bin/ruff check . (baseline: 99 tests + ruff clean, confirmed)
+key files: src/local_code_indexer/cli.py, src/local_code_indexer/service.py, tests/test_cli.py, tests/test_service.py, README.md, docs/fleet/spec.md

@@ -202,6 +202,19 @@ def test_list_files_accepts_lang_filter(tmp_path: Path) -> None:
     assert service.list_files(repo="demo", lang="rs") == []
 
 
+def test_lists_indexed_languages_and_kinds_lowercased(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/Auth.PY", "class AuthService:\n    pass\n")
+    write(repo / "docs/auth.md", "def markdown_symbol():\n    return 1\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    assert service.list_languages() == ["md", "py"]
+    assert service.list_kinds() == ["class", "function"]
+
+
 def test_symbols_accepts_lang_filter_before_limit(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "a.py", "def python_symbol():\n    return 1\n")
