@@ -1,18 +1,18 @@
 ---
 project: local-code-indexer
-tier: prototype
+tier: production
 status: doing
-current_round: 5
+current_round: 1
 verify_cmd: ".venv/bin/python -m pytest -q && .venv/bin/ruff check ."
 push_allowed: true
-danger: "useability"
+danger: "GA arc: reposition this project as the fully-local retrieval stack for LOCAL coding models — Ollama/LM Studio embeddings + SQLite FTS5/sqlite-vec index + MCP retrieval, loopback-enforced by design. Frontier agents have agentic grep; local models need retrieval help — that is the story. Goal: GA-ready open-source presentation on the default branch (next): a clean README that tells this story with mermaid architecture diagrams, a local-model quickstart (Ollama embeddings + a local coding agent via MCP), packaging polish (PyPI-ready metadata, LICENSE, versioning), and hardening from docs/audit-*.md leftovers. The first slice must also rewrite the docs/fleet/spec.md Intent section to this repositioning. The prior PR stack (#1-#6) is fully merged into next; base new round branches on next. The stale main branch is a cleanup item (default branch is next). Draft PRs to next are allowed and desired."
 branch_lineage:
   - round: 1
     branch: "fleet/round-1-human-readable-cli-output"
     base: "next"
     pr: "https://github.com/nathanmauro/local-code-indexer/pull/1"
     commit: "e81ed25"
-    status: "review"
+    status: "done"
     note: ""
   - round: 2
     branch: "fleet/round-2-human-readable-mutation-output"
@@ -26,45 +26,62 @@ branch_lineage:
     base: "next"
     pr: "https://github.com/nathanmauro/local-code-indexer/pull/3"
     commit: "7a11cd3"
-    status: "review"
+    status: "done"
     note: ""
   - round: 4
     branch: "fleet/round-4-empty-index-guidance"
     base: "fleet/round-3-unknown-repo-errors"
     pr: "https://github.com/nathanmauro/local-code-indexer/pull/4"
     commit: "27794aa"
-    status: "review"
+    status: "done"
     note: "trajectory: intended keyFiles all covered; changed cli.py+service.py+tests/test_cli.py+README.md+docs/fleet/spec.md; tools.py/test_mcp_server.py verified unchanged-green as planned"
   - round: 2
     branch: "fleet/round-2-filter-value-hints"
     base: "fleet/round-4-empty-index-guidance"
     pr: "https://github.com/nathanmauro/local-code-indexer/pull/5"
     commit: "5a012dd"
-    status: "review"
+    status: "done"
     note: "trajectory: matched keyFiles exactly (cli/service/test_cli/test_service/README + spec render); human-only hints, JSON+MCP untouched"
+  - round: 5
+    branch: "fleet/round-5-explain-empty-vector-search"
+    base: "fleet/round-2-filter-value-hints"
+    pr: "https://github.com/nathanmauro/local-code-indexer/pull/6"
+    commit: "795649d"
+    status: "done"
+    note: "trajectory: matched keyFiles exactly; vector-only skip-reason hints, JSON+MCP unchanged; codex self-corrected mirror current_round 2->5 per orchestrator lineage note"
 ---
 
 # local-code-indexer — fleet spec
 
 ## Intent
 
-<running scope conversation>
+Fully-local retrieval stack for LOCAL coding models. Frontier hosted coding agents have agentic
+grep/search and huge context windows; local coding models running through Ollama, LM Studio, or
+llama.cpp are smaller and need retrieval help before they can reason over a repo. `local-code-indexer`
+is that retrieval layer: loopback-enforced local embeddings, SQLite FTS5 plus sqlite-vec/JSON vector
+search, and MCP retrieval tools that let local agents fetch relevant code without sending code or
+embeddings off-machine.
+
+GA arc: make the default `next` branch presentable as an open-source GA candidate. The arc includes
+a README that tells the local-model retrieval story with mermaid architecture diagrams and a
+local-model quickstart, packaging polish such as a real MIT `LICENSE`, PyPI-ready metadata and
+versioning, and later hardening work only where the audit docs still leave accepted leftovers. The
+prior useability arc, rounds 1-5 via PRs #1-#6, is fully merged into `next`; do not redo that work.
 
 ## Stakes
 
-prototype
+production
 
 ## Acceptance bar
 
 - verify: `.venv/bin/python -m pytest -q && .venv/bin/ruff check .` green
-- Service: search() sets an inspectable attribute last_vector_skip_reason (reset to None alongside the existing last_vector_backend reset at service.py:858) when mode includes vector: 'embeddings-disabled' when self.embedder is None; 'query-embedding-failed' when the embedder is set but _embed_query returned None; 'no-embedded-chunks' when the query embedded successfully but zero embedded chunks are stored in the searched scope; None otherwise. Search return values and filter semantics unchanged.
-- CLI: when `search --mode vector` human-readable output is empty and at least one repo is indexed, print 'No results.' plus one hint line naming the cause and a next action (e.g. "note: vector search unavailable: embeddings are disabled (LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS=1). try --mode lexical."; unreachable-service and no-embedded-chunks variants point at restoring the embedding service / re-running `local-code-indexer index <repo_path>`).
-- Hybrid and lexical empty output unchanged: exactly 'No results.' plus only the existing filter hints; existing guard tests (test_cli.py test_empty_read_side_results_print_friendly_line at :493, filter-hint tests :511-633, test_known_filter_with_no_results_prints_only_no_results at :619) stay green.
-- Zero-repos precedence unchanged: EMPTY_INDEX_HINT still wins (tests at test_cli.py:635 and :650 stay green); when both a filter hint and the vector hint apply, output order is deterministic and tested.
-- --json empty results remain [] with no hint text (test_json_empty_results_stay_empty_arrays at test_cli.py:659 stays green); MCP tools.py untouched; tests/test_mcp_server.py green unmodified.
-- New CLI tests: vector-mode empty search under the default DISABLE_EMBEDDINGS=1 fixture, using a query that matches no paths/symbols (path/symbol scoring runs in every mode and can make vector-mode output non-empty even with no embedder), prints the disabled hint; hybrid-mode empty search stays bare 'No results.'; --json vector-mode empty stays []. New service tests using an injected stub embedder (IndexService(db, embedder=...), pattern already used at tests/test_service.py:212): raising embedder yields 'query-embedding-failed'; embedder=None yields 'embeddings-disabled'; working stub embedder with no stored vectors yields 'no-embedded-chunks'; lexical-mode search leaves the reason None and no hints leak.
-- README gets a one-line note about the vector-mode unavailability hint (near the existing empty-state hint paragraph at lines 41-43).
-- Verify green: .venv/bin/python -m pytest -q && .venv/bin/ruff check . (baseline: 107 tests + ruff clean, independently confirmed on 5a012dd)
+- README.md opens with the local-model-retrieval narrative (frontier agents have agentic grep, local models need retrieval, this project is that layer, fully local via loopback)
+- README.md contains at least one mermaid architecture diagram and a 'Local-model quickstart' section with CLI steps verified against src/local_code_indexer/cli.py
+- All currently-documented CLI commands, MCP tools, env vars, and behaviors remain documented (no accurate content silently dropped)
+- New LICENSE file at repo root: MIT text, copyright Nathan Mauro
+- docs/fleet/spec.md '## Intent' section is rewritten for the GA local-model retrieval arc
+- No files under src/ or tests/ modified
+- `.venv/bin/python -m pytest -q && .venv/bin/ruff check .` stays green (baseline: 114 tests passing, ruff clean on next HEAD a94a18c — independently reproduced, not just claimed)
 
 ## Decided
 
@@ -77,7 +94,7 @@ base: next
 branch: fleet/round-1-human-readable-cli-output
 pr: https://github.com/nathanmauro/local-code-indexer/pull/1
 commit: e81ed25
-status: review
+status: done
 note:
 
 ### Round 2 — fleet/round-2-human-readable-mutation-output
@@ -93,7 +110,7 @@ base: next
 branch: fleet/round-3-unknown-repo-errors
 pr: https://github.com/nathanmauro/local-code-indexer/pull/3
 commit: 7a11cd3
-status: review
+status: done
 note:
 
 ### Round 4 — fleet/round-4-empty-index-guidance
@@ -101,7 +118,7 @@ base: fleet/round-3-unknown-repo-errors
 branch: fleet/round-4-empty-index-guidance
 pr: https://github.com/nathanmauro/local-code-indexer/pull/4
 commit: 27794aa
-status: review
+status: done
 note: trajectory: intended keyFiles all covered; changed cli.py+service.py+tests/test_cli.py+README.md+docs/fleet/spec.md; tools.py/test_mcp_server.py verified unchanged-green as planned
 
 ### Round 2 — fleet/round-2-filter-value-hints
@@ -109,18 +126,25 @@ base: fleet/round-4-empty-index-guidance
 branch: fleet/round-2-filter-value-hints
 pr: https://github.com/nathanmauro/local-code-indexer/pull/5
 commit: 5a012dd
-status: review
+status: done
 note: trajectory: matched keyFiles exactly (cli/service/test_cli/test_service/README + spec render); human-only hints, JSON+MCP untouched
 
-### Round 5 — Explain empty --mode vector search results when vector search is unavailable
-why: docs/fleet/spec.md Rounds 1-5 build one useability arc: every unknown/empty CLI state explains itself (round 3 unknown repos, round 4 empty index, round 5/PR#5 no-match filter values). Direct inspection of the current HEAD confirms the last silent state: `search --mode vector` with embeddings disabled (service.py:100-106, embedder None), a dead embedding service (_embed_query swallows all exceptions and returns None at service.py:746-752), or zero stored embedded chunks prints a bare 'No results.' via cli.py _print_read_results — indistinguishable from 'no semantically similar code'. Decided/Deferred in the living spec are empty; nothing blocks it, and it completes the arc without touching JSON or MCP surfaces, consistent with rounds 4-5.
+### Round 5 — fleet/round-5-explain-empty-vector-search
+base: fleet/round-2-filter-value-hints
+branch: fleet/round-5-explain-empty-vector-search
+pr: https://github.com/nathanmauro/local-code-indexer/pull/6
+commit: 795649d
+status: done
+note: trajectory: matched keyFiles exactly; vector-only skip-reason hints, JSON+MCP unchanged; codex self-corrected mirror current_round 2->5 per orchestrator lineage note
+
+### Round 1 — GA README rewrite + LICENSE + fleet spec Intent repositioning
+why: The spec mirror ~/.codex-goals/local-code-indexer.spec.json confirms status:'planned', current_round:1, tier:'production', and an 'intent' field explicitly framing this GA repositioning, stating verbatim that 'The first slice must also rewrite the docs/fleet/spec.md Intent section to this repositioning.' docs/fleet/spec.md's own Intent section was still the stale running-scope placeholder before this slice (verified by reading the file), and the current README (113 lines, verified) had all the right technical facts but zero narrative, no mermaid diagram, no 'Local-model quickstart' section, and no LICENSE file anywhere in git history despite pyproject.toml declaring license = "MIT".
 acceptance:
-- Service: search() sets an inspectable attribute last_vector_skip_reason (reset to None alongside the existing last_vector_backend reset at service.py:858) when mode includes vector: 'embeddings-disabled' when self.embedder is None; 'query-embedding-failed' when the embedder is set but _embed_query returned None; 'no-embedded-chunks' when the query embedded successfully but zero embedded chunks are stored in the searched scope; None otherwise. Search return values and filter semantics unchanged.
-- CLI: when `search --mode vector` human-readable output is empty and at least one repo is indexed, print 'No results.' plus one hint line naming the cause and a next action (e.g. "note: vector search unavailable: embeddings are disabled (LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS=1). try --mode lexical."; unreachable-service and no-embedded-chunks variants point at restoring the embedding service / re-running `local-code-indexer index <repo_path>`).
-- Hybrid and lexical empty output unchanged: exactly 'No results.' plus only the existing filter hints; existing guard tests (test_cli.py test_empty_read_side_results_print_friendly_line at :493, filter-hint tests :511-633, test_known_filter_with_no_results_prints_only_no_results at :619) stay green.
-- Zero-repos precedence unchanged: EMPTY_INDEX_HINT still wins (tests at test_cli.py:635 and :650 stay green); when both a filter hint and the vector hint apply, output order is deterministic and tested.
-- --json empty results remain [] with no hint text (test_json_empty_results_stay_empty_arrays at test_cli.py:659 stays green); MCP tools.py untouched; tests/test_mcp_server.py green unmodified.
-- New CLI tests: vector-mode empty search under the default DISABLE_EMBEDDINGS=1 fixture, using a query that matches no paths/symbols (path/symbol scoring runs in every mode and can make vector-mode output non-empty even with no embedder), prints the disabled hint; hybrid-mode empty search stays bare 'No results.'; --json vector-mode empty stays []. New service tests using an injected stub embedder (IndexService(db, embedder=...), pattern already used at tests/test_service.py:212): raising embedder yields 'query-embedding-failed'; embedder=None yields 'embeddings-disabled'; working stub embedder with no stored vectors yields 'no-embedded-chunks'; lexical-mode search leaves the reason None and no hints leak.
-- README gets a one-line note about the vector-mode unavailability hint (near the existing empty-state hint paragraph at lines 41-43).
-- Verify green: .venv/bin/python -m pytest -q && .venv/bin/ruff check . (baseline: 107 tests + ruff clean, independently confirmed on 5a012dd)
-key files: src/local_code_indexer/cli.py, src/local_code_indexer/service.py, tests/test_cli.py, tests/test_service.py, README.md, docs/fleet/spec.md
+- README.md opens with the local-model-retrieval narrative (frontier agents have agentic grep, local models need retrieval, this project is that layer, fully local via loopback)
+- README.md contains at least one mermaid architecture diagram and a 'Local-model quickstart' section with CLI steps verified against src/local_code_indexer/cli.py
+- All currently-documented CLI commands, MCP tools, env vars, and behaviors remain documented (no accurate content silently dropped)
+- New LICENSE file at repo root: MIT text, copyright Nathan Mauro
+- docs/fleet/spec.md '## Intent' section is rewritten for the GA local-model retrieval arc
+- No files under src/ or tests/ modified
+- `.venv/bin/python -m pytest -q && .venv/bin/ruff check .` stays green (baseline: 114 tests passing, ruff clean on next HEAD a94a18c — independently reproduced, not just claimed)
+key files: README.md, docs/fleet/spec.md, LICENSE (new), pyproject.toml, src/local_code_indexer/cli.py, docs/decisions/0001-embedding-backend-ollama.md
