@@ -632,6 +632,76 @@ def test_known_filter_with_no_results_prints_only_no_results(
     assert capsys.readouterr().out == "No results.\n"
 
 
+def test_vector_mode_empty_search_prints_disabled_embeddings_hint(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "zzzxqv-no-match-9482", "--repo", "demo", "--mode", "vector"])
+
+    assert (
+        capsys.readouterr().out
+        == "No results.\n"
+        "note: vector search unavailable: embeddings are disabled "
+        "(LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS=1). try --mode lexical.\n"
+    )
+
+
+def test_hybrid_mode_empty_search_does_not_print_vector_hint(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "zzzxqv-no-match-9482", "--repo", "demo", "--mode", "hybrid"])
+
+    assert capsys.readouterr().out == "No results.\n"
+
+
+def test_vector_mode_empty_search_with_filter_hint_prints_deterministic_order(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(
+        [
+            "search",
+            "zzzxqv-no-match-9482",
+            "--repo",
+            "demo",
+            "--mode",
+            "vector",
+            "--lang",
+            "rs",
+        ]
+    )
+
+    assert (
+        capsys.readouterr().out
+        == "No results.\n"
+        "note: --lang 'rs' matches nothing. indexed languages: py\n"
+        "note: vector search unavailable: embeddings are disabled "
+        "(LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS=1). try --mode lexical.\n"
+    )
+
+
 def test_empty_index_read_side_results_print_getting_started_hint(
     capsys: pytest.CaptureFixture,
 ) -> None:
@@ -688,6 +758,22 @@ def test_json_empty_filter_results_stay_empty_arrays(
     assert json.loads(capsys.readouterr().out) == []
 
     main(["list-files", "--repo", "demo", "--lang", "rs", "--json"])
+    assert json.loads(capsys.readouterr().out) == []
+
+
+def test_json_vector_mode_empty_search_stays_empty_array(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "zzzxqv-no-match-9482", "--repo", "demo", "--mode", "vector", "--json"])
+
     assert json.loads(capsys.readouterr().out) == []
 
 

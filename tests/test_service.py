@@ -855,6 +855,57 @@ def test_vector_search_uses_sqlite_vec_when_loaded(tmp_path: Path) -> None:
         assert service.last_vector_backend == "sqlite-vec"
 
 
+def test_vector_search_records_disabled_embeddings_skip_reason(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS", "1")
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def login(token):\n    return token\n")
+
+    service = IndexService(tmp_path / "index.db")
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    assert service.search("zzzxqv-no-match-9482", repo="demo", mode="vector") == []
+    assert service.last_vector_skip_reason == "embeddings-disabled"
+
+    service.search("zzzxqv-no-match-9482", repo="demo", mode="lexical")
+    assert service.last_vector_skip_reason is None
+
+
+def test_vector_search_records_query_embedding_failure_skip_reason(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def login(token):\n    return token\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FailingEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    assert service.search("zzzxqv-no-match-9482", repo="demo", mode="vector") == []
+    assert service.last_vector_skip_reason == "query-embedding-failed"
+
+
+def test_vector_search_records_no_embedded_chunks_skip_reason(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS", "1")
+    repo = tmp_path / "repo"
+    write(repo / "app.py", "def login(token):\n    return token\n")
+    db_path = tmp_path / "index.db"
+
+    disabled_service = IndexService(db_path)
+    disabled_service.init()
+    disabled_service.index_repo(repo, name="demo")
+
+    service = IndexService(db_path, embedder=FakeEmbedder())
+    service.init()
+
+    assert service.search("zzzxqv-no-match-9482", repo="demo", mode="vector") == []
+    assert service.last_vector_skip_reason == "no-embedded-chunks"
+
+
 def test_status_reports_sqlite_vec_vector_query_backend_when_loaded(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     write(repo / "src/auth.py", "def login(token):\n    return token\n")

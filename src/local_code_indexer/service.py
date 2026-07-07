@@ -104,6 +104,7 @@ class IndexService:
         self.embedder = embedder
         self._sqlite_vec_loaded = False
         self.last_vector_backend: str | None = None
+        self.last_vector_skip_reason: str | None = None
 
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -856,6 +857,7 @@ class IndexService:
             kind_filter = _normalize_kind_filter(kind)
             kind_sql, kind_params = self._kind_chunk_filter(kind_filter)
             self.last_vector_backend = None
+            self.last_vector_skip_reason = None
             repo_filter, repo_params = self._repo_filter(repo)
             candidates: dict[str, dict[str, Any]] = {}
             if mode in {"hybrid", "lexical"}:
@@ -869,18 +871,27 @@ class IndexService:
                     kind_params,
                 )
             if mode in {"hybrid", "vector"}:
-                query_embedding = self._embed_query(query)
-                if query_embedding:
-                    self.last_vector_backend = self._add_vector_candidates(
-                        conn,
-                        candidates,
-                        query_embedding,
-                        repo_filter,
-                        repo_params,
-                        limit,
-                        kind_sql,
-                        kind_params,
-                    )
+                if self.embedder is None:
+                    self.last_vector_skip_reason = "embeddings-disabled"
+                else:
+                    query_embedding = self._embed_query(query)
+                    if query_embedding is None:
+                        self.last_vector_skip_reason = "query-embedding-failed"
+                    elif self._embedded_chunk_count(conn, repo_filter, repo_params) == 0:
+                        self.last_vector_skip_reason = "no-embedded-chunks"
+                    elif query_embedding:
+                        self.last_vector_backend = self._add_vector_candidates(
+                            conn,
+                            candidates,
+                            query_embedding,
+                            repo_filter,
+                            repo_params,
+                            limit,
+                            kind_sql,
+                            kind_params,
+                        )
+                    else:
+                        self.last_vector_skip_reason = "query-embedding-failed"
             self._add_path_symbol_scores(
                 conn,
                 candidates,
@@ -898,6 +909,23 @@ class IndexService:
                 rows = [item for item in rows if _path_language(item["path"]).lower() == lang_filter]
             rows = sorted(rows, key=lambda item: item["score"], reverse=True)[:limit]
             return [self._format_search_result(row) for row in rows]
+
+    def _embedded_chunk_count(
+        self,
+        conn: sqlite3.Connection,
+        repo_filter: str,
+        repo_params: list[Any],
+    ) -> int:
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM chunks c
+            JOIN repos r ON c.repo_id = r.id
+            WHERE c.embedding_json != ''{repo_filter}
+            """,
+            repo_params,
+        ).fetchone()
+        return int(row["count"])
 
     def _repo_filter(self, repo: str | None) -> tuple[str, list[Any]]:
         if repo:
