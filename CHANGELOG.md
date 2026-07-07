@@ -28,6 +28,8 @@ current package metadata is still `0.1.0.dev0`.
 - Added CLI-only empty vector-search guidance in PR #6 so `search --mode vector`
   explains when vector search did not run because embeddings were disabled, query
   embedding failed, or no indexed chunks have embeddings.
+- Added a top-level `local-code-indexer --version` flag and status version field so
+  CLI users and MCP clients can confirm the installed package version.
 
 ### Changed
 

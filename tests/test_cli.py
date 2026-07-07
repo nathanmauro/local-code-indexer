@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from local_code_indexer import __version__
 from local_code_indexer.cli import main
 
 
@@ -25,6 +26,14 @@ def test_watch_rejects_non_positive_interval(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["watch", str(repo), "--interval", "0"])
     assert excinfo.value.code == 2
+
+
+def test_version_flag_outputs_bare_package_version(capsys: pytest.CaptureFixture) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--version"])
+
+    assert excinfo.value.code == 0
+    assert capsys.readouterr().out == f"{__version__}\n"
 
 
 def test_index_remove_roundtrip(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -457,6 +466,7 @@ def test_status_defaults_to_human_readable_output(tmp_path: Path, capsys: pytest
     main(["status"])
     output = capsys.readouterr().out
 
+    assert f"version: {__version__}" in output
     assert "db_path:" in output
     assert "repos: 1" in output
     assert "files: 1" in output
@@ -468,6 +478,23 @@ def test_status_defaults_to_human_readable_output(tmp_path: Path, capsys: pytest
     assert "per_repo:" in output
     assert "demo files=1 chunks=1 embedded_chunks=0" in output
     assert not output.lstrip().startswith("{")
+
+
+def test_status_json_includes_package_version(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["status", "--json"])
+    status = json.loads(capsys.readouterr().out)
+
+    assert status["version"] == __version__
 
 
 def test_status_with_unknown_repo_lists_indexed_repos(
