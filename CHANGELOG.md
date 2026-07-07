@@ -30,6 +30,8 @@ current package metadata is still `0.1.0.dev0`.
   embedding failed, or no indexed chunks have embeddings.
 - Added a top-level `local-code-indexer --version` flag and status version field so
   CLI users and MCP clients can confirm the installed package version.
+- Added README installation guidance with the `pip install local-code-indexer`
+  command and Python version requirement.
 
 ### Changed
 
