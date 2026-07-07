@@ -8,6 +8,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import __version__
 from .config import db_path_from_env
 from .registration import claude_mcp_config, codex_mcp_config
 from .service import IndexService, _normalize_kind_filter, _normalize_lang_filter
@@ -162,6 +163,7 @@ def _print_list_repos(rows: list[dict]) -> None:
 
 def _print_status(status: dict) -> None:
     for key in (
+        "version",
         "db_path",
         "repos",
         "files",
@@ -224,6 +226,7 @@ def _print_remove(result: dict) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="local-code-indexer")
+    parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument(
         "--json",
         action="store_true",

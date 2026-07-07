@@ -99,6 +99,7 @@ sequenceDiagram
 ## CLI reference
 
 ```bash
+local-code-indexer --version
 local-code-indexer init
 local-code-indexer index <repo_path> [--name NAME]
 local-code-indexer watch <repo_path> [--name NAME] [--interval SECONDS]
@@ -114,7 +115,8 @@ local-code-indexer mcp-config --client claude|codex [--db-path DB_PATH]
 local-code-indexer mcp
 ```
 
-CLI commands default to compact human-readable output. Pass `--json` to any subcommand, such as
+`local-code-indexer --version` prints the installed package version. CLI commands default to compact
+human-readable output. Pass `--json` to any subcommand, such as
 `local-code-indexer search token --json` or `local-code-indexer index . --json`, to print the
 machine-readable JSON payload. `mcp-config` is the exception: it always prints a JSON client config
 snippet meant to be pasted into a Claude or Codex MCP configuration.

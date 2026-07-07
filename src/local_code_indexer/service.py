@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import config
+from . import __version__, config
 from .chunking import CodeChunk, chunk_file_text, extract_symbol_definitions, split_lines
 from .embeddings import LocalEmbedder
 from .ignore import IgnoreMatcher
@@ -1452,6 +1452,7 @@ class IndexService:
             degraded = self.embedder is not None and int(embedded_chunks) < int(chunks)
             per_repo = self._repo_summaries(conn, repo_filter, repo_params)
         return {
+            "version": __version__,
             "db_path": str(self.db_path),
             "repos": int(repos),
             "files": int(files),
