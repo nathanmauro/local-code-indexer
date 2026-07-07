@@ -31,3 +31,6 @@ jobs:
 
       - name: Run Ruff
         run: ruff check .
+
+      - name: Verify package build artifacts
+        run: python -m pytest tests/test_build_artifact.py -q
