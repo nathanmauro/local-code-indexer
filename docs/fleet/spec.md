@@ -2,7 +2,7 @@
 project: local-code-indexer
 tier: production
 status: doing
-current_round: 7
+current_round: 8
 verify_cmd: ".venv/bin/python -m pytest -q && .venv/bin/ruff check ."
 push_allowed: true
 danger: "GA arc: reposition this project as the fully-local retrieval stack for LOCAL coding models — Ollama/LM Studio embeddings + SQLite FTS5/sqlite-vec index + MCP retrieval, loopback-enforced by design. Frontier agents have agentic grep; local models need retrieval help — that is the story. Goal: GA-ready open-source presentation on the default branch (next): a clean README that tells this story with mermaid architecture diagrams, a local-model quickstart (Ollama embeddings + a local coding agent via MCP), packaging polish (PyPI-ready metadata, LICENSE, versioning), and hardening from docs/audit-*.md leftovers. The first slice must also rewrite the docs/fleet/spec.md Intent section to this repositioning. The prior PR stack (#1-#6) is fully merged into next; base new round branches on next. The stale main branch is a cleanup item (default branch is next). Draft PRs to next are allowed and desired."
@@ -91,6 +91,13 @@ branch_lineage:
     commit: "86ad1b6"
     status: "review"
     note: ""
+  - round: 7
+    branch: "fleet/round-7-add-version-flag"
+    base: "next"
+    pr: "https://github.com/nathanmauro/local-code-indexer/pull/13"
+    commit: "2a0b4d3"
+    status: "done"
+    note: ""
 ---
 
 # local-code-indexer — fleet spec
@@ -117,11 +124,10 @@ production
 ## Acceptance bar
 
 - verify: `.venv/bin/python -m pytest -q && .venv/bin/ruff check .` green
-- `local-code-indexer --version` (top-level flag, before/without a subcommand) prints ONLY the bare __version__ string (no `prog` prefix, no 'version' word) and exits 0 -- use argparse's `action='version'` pattern with `version=__version__` (not the conventional `'%(prog)s %(version)s'` template, which would break an exact-string test)
-- The JSON `status` command output gains a `version` field carrying the same __version__ string; human-readable status output prints a version line too. Do not change any other status field or any other command's JSON schema
-- New or extended tests in tests/test_cli.py cover: `--version` exits 0 and stdout equals exactly `__version__ + "\n"` (no extra prog text); `status --json` includes `"version": <__version__>`; human-readable `status` output includes the version. Do not edit tests/test_packaging.py (it already asserts __init__.py's __version__ format; leave it as the read-only source of truth for the version string pattern)
-- README.md's CLI reference section gains `local-code-indexer --version` in the command list (near the other bare flags) with one sentence of prose noting it prints the installed package version -- no other README section changes
-- CHANGELOG.md's [Unreleased] section gets one new bullet describing this addition under ### Added
+- README.md gains a new '## Installation' section placed between the intro paragraph/architecture diagrams and the existing '## Local-model quickstart' section, containing at minimum the literal command `pip install local-code-indexer`, and one sentence noting the Python 3.11+ requirement matching pyproject.toml's `requires-python = ">=3.11"`. Do not edit any other existing README section (Architecture, Local-model quickstart, CLI reference, MCP tools, Retrieval mechanics, Indexing behavior, Configuration, Ignore rules, License) beyond inserting this new section
+- tests/test_ga_docs.py gets a new test function (or an extension of the existing one) asserting README.md contains both the heading '## Installation' and the literal substring 'pip install local-code-indexer'. Do not weaken or remove the existing CHANGELOG/CONTRIBUTING assertions already in that file
+- CHANGELOG.md's [Unreleased] section gets exactly one new bullet under '### Added' describing the new Installation section (no other CHANGELOG edits)
+- Do not touch pyproject.toml, LICENSE, CONTRIBUTING.md, src/local_code_indexer/**, or any other test file -- this is a docs-plus-test-only slice
 - verify command green: `.venv/bin/python -m pytest -q && .venv/bin/ruff check .`
 - docs/fleet/spec.md is re-rendered via fleet-spec.sh and staged with this round's entry
 
@@ -227,14 +233,21 @@ commit: 86ad1b6
 status: review
 note:
 
-### Round 7 — Add --version CLI support and a status version field
-why: docs/fleet/spec.md's Intent/danger explicitly calls for GA 'packaging polish (PyPI-ready metadata, LICENSE, versioning)'. Metadata, LICENSE, and build-artifact verification are done or in draft review (PRs #7-#12); versioning is metadata-only today (__version__ string with no CLI surface, confirmed by direct grep). A PyPI-published CLI without `--version` is a real GA gap and a clean, independently testable slice distinct from all 12 prior merged/draft PRs.
+### Round 7 — fleet/round-7-add-version-flag
+base: next
+branch: fleet/round-7-add-version-flag
+pr: https://github.com/nathanmauro/local-code-indexer/pull/13
+commit: 2a0b4d3
+status: done
+note:
+
+### Round 8 — Add a README Installation section (pip install + Python 3.11+ note), locked in by a test
+why: The GA danger field explicitly calls for 'a clean README that tells this story' plus 'packaging polish'; direct inspection confirmed README.md has architecture diagrams, a local-model quickstart, CLI reference, and MCP tools sections but literally no 'pip install' / 'pipx' / 'uv tool' string anywhere -- a new user cannot learn how to obtain the local-code-indexer command from the README. All 19+4 audit-doc hardening findings I checked are already remediated in source (sqlite-vec k constraint, async MCP tools, UTF-8 sniff boundary, secret-name/env exclusion, symlink skip, path-first repo identity, repo_path directory validation, per-file commit boundaries), so hardening is not the remaining gap; the install-instructions gap is the one concrete, verifiable GA-readiness item left, and it is independent of PR #12 (build-artifact verification only touches ci.yml/pyproject.toml/tests/test_build_artifact.py, no README) and distinct from all 12 prior merged/draft PRs. docs/fleet/spec.md's Decided/Deferred sections are empty and its Rounds log has no round 8 entry, so this is genuinely open, not already attempted or explicitly deferred.
 acceptance:
-- `local-code-indexer --version` (top-level flag, before/without a subcommand) prints ONLY the bare __version__ string (no `prog` prefix, no 'version' word) and exits 0 -- use argparse's `action='version'` pattern with `version=__version__` (not the conventional `'%(prog)s %(version)s'` template, which would break an exact-string test)
-- The JSON `status` command output gains a `version` field carrying the same __version__ string; human-readable status output prints a version line too. Do not change any other status field or any other command's JSON schema
-- New or extended tests in tests/test_cli.py cover: `--version` exits 0 and stdout equals exactly `__version__ + "\n"` (no extra prog text); `status --json` includes `"version": <__version__>`; human-readable `status` output includes the version. Do not edit tests/test_packaging.py (it already asserts __init__.py's __version__ format; leave it as the read-only source of truth for the version string pattern)
-- README.md's CLI reference section gains `local-code-indexer --version` in the command list (near the other bare flags) with one sentence of prose noting it prints the installed package version -- no other README section changes
-- CHANGELOG.md's [Unreleased] section gets one new bullet describing this addition under ### Added
+- README.md gains a new '## Installation' section placed between the intro paragraph/architecture diagrams and the existing '## Local-model quickstart' section, containing at minimum the literal command `pip install local-code-indexer`, and one sentence noting the Python 3.11+ requirement matching pyproject.toml's `requires-python = ">=3.11"`. Do not edit any other existing README section (Architecture, Local-model quickstart, CLI reference, MCP tools, Retrieval mechanics, Indexing behavior, Configuration, Ignore rules, License) beyond inserting this new section
+- tests/test_ga_docs.py gets a new test function (or an extension of the existing one) asserting README.md contains both the heading '## Installation' and the literal substring 'pip install local-code-indexer'. Do not weaken or remove the existing CHANGELOG/CONTRIBUTING assertions already in that file
+- CHANGELOG.md's [Unreleased] section gets exactly one new bullet under '### Added' describing the new Installation section (no other CHANGELOG edits)
+- Do not touch pyproject.toml, LICENSE, CONTRIBUTING.md, src/local_code_indexer/**, or any other test file -- this is a docs-plus-test-only slice
 - verify command green: `.venv/bin/python -m pytest -q && .venv/bin/ruff check .`
 - docs/fleet/spec.md is re-rendered via fleet-spec.sh and staged with this round's entry
-key files: src/local_code_indexer/cli.py (add --version flag in build_parser, add version to status printing), src/local_code_indexer/service.py (status() method, around line 1407 -- add version field to returned dict), tests/test_cli.py (new/extended tests), README.md (CLI reference section only), CHANGELOG.md ([Unreleased] > Added only), docs/fleet/spec.md (re-rendered), src/local_code_indexer/__init__.py (read-only reference for __version__, do not edit)
+key files: README.md (add the new Installation section only), tests/test_ga_docs.py (add/extend the assertion), CHANGELOG.md ([Unreleased] > Added only), docs/fleet/spec.md (re-rendered), pyproject.toml (read-only reference for package name + requires-python, do not edit)

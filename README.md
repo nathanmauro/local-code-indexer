@@ -33,6 +33,14 @@ sequenceDiagram
     Indexer-->>Agent: ranked local context
 ```
 
+## Installation
+
+Install the CLI package with pip; Python 3.11 or newer is required.
+
+```bash
+pip install local-code-indexer
+```
+
 ## Local-model quickstart
 
 1. Start a local embedding service. Ollama is the default backend:
