@@ -470,6 +470,26 @@ def test_status_defaults_to_human_readable_output(tmp_path: Path, capsys: pytest
     assert not output.lstrip().startswith("{")
 
 
+def test_status_with_unknown_repo_lists_indexed_repos(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["status", "--repo", "missing"])
+
+    assert excinfo.value.code == 1
+    error = capsys.readouterr().err
+    assert "unknown repo: missing" in error
+    assert "indexed repos: demo" in error
+
+
 def test_empty_read_side_results_print_friendly_line(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -486,6 +506,44 @@ def test_empty_read_side_results_print_friendly_line(tmp_path: Path, capsys: pyt
 
     main(["list-files", "--repo", "demo", "--glob", "missing/*"])
     assert capsys.readouterr().out == "No results.\n"
+
+
+def test_empty_index_read_side_results_print_getting_started_hint(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    hint = "No repos indexed. Run `local-code-indexer index <repo_path>` to index one.\n"
+
+    main(["search", "anything"])
+    assert capsys.readouterr().out == hint
+
+    main(["symbols", "anything"])
+    assert capsys.readouterr().out == hint
+
+    main(["list-files"])
+    assert capsys.readouterr().out == hint
+
+
+def test_empty_list_repos_prints_getting_started_hint(capsys: pytest.CaptureFixture) -> None:
+    main(["list-repos"])
+
+    assert (
+        capsys.readouterr().out
+        == "No repos indexed. Run `local-code-indexer index <repo_path>` to index one.\n"
+    )
+
+
+def test_json_empty_results_stay_empty_arrays(capsys: pytest.CaptureFixture) -> None:
+    main(["search", "anything", "--json"])
+    assert json.loads(capsys.readouterr().out) == []
+
+    main(["symbols", "anything", "--json"])
+    assert json.loads(capsys.readouterr().out) == []
+
+    main(["list-files", "--json"])
+    assert json.loads(capsys.readouterr().out) == []
+
+    main(["list-repos", "--json"])
+    assert json.loads(capsys.readouterr().out) == []
 
 
 @pytest.mark.parametrize(
@@ -543,6 +601,26 @@ def test_read_file_distinguishes_unknown_repo_from_missing_file(
     missing_file_error = capsys.readouterr().err
     assert "demo:missing.py is not indexed" in missing_file_error
     assert "unknown repo" not in missing_file_error
+
+
+def test_remove_unknown_repo_lists_indexed_repos(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("def login(token):\n    return token\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["remove", "missing"])
+
+    assert excinfo.value.code == 1
+    error = capsys.readouterr().err
+    assert "unknown repo: missing" in error
+    assert "indexed repos: demo" in error
 
 
 def test_json_flag_preserves_search_json_shape(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

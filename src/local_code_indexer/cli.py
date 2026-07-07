@@ -12,6 +12,8 @@ from .config import db_path_from_env
 from .registration import claude_mcp_config, codex_mcp_config
 from .service import IndexService
 
+EMPTY_INDEX_HINT = "No repos indexed. Run `local-code-indexer index <repo_path>` to index one."
+
 
 def _service() -> IndexService:
     service = IndexService(db_path_from_env())
@@ -26,6 +28,16 @@ def _print_json(payload) -> None:
 def _print_json_or_text(payload, json_output: bool, text_printer) -> None:
     if json_output:
         _print_json(payload)
+        return
+    text_printer(payload)
+
+
+def _print_read_results(payload: list[dict], service: IndexService, json_output: bool, text_printer) -> None:
+    if json_output:
+        _print_json(payload)
+        return
+    if not payload and not service.list_repos():
+        print(EMPTY_INDEX_HINT)
         return
     text_printer(payload)
 
@@ -72,7 +84,7 @@ def _print_list_files(rows: list[dict]) -> None:
 
 def _print_list_repos(rows: list[dict]) -> None:
     if not rows:
-        print("No results.")
+        print(EMPTY_INDEX_HINT)
         return
     for row in rows:
         print(
@@ -280,7 +292,7 @@ def main(argv: list[str] | None = None) -> None:
                 lang=args.lang or None,
                 kind=args.kind or None,
             )
-            _print_json_or_text(results, args.json_output, _print_search)
+            _print_read_results(results, service, args.json_output, _print_search)
         elif args.command == "symbols":
             results = service.symbols(
                 repo=args.repo or None,
@@ -290,7 +302,7 @@ def main(argv: list[str] | None = None) -> None:
                 lang=args.lang or None,
                 kind=args.kind or None,
             )
-            _print_json_or_text(results, args.json_output, _print_symbols)
+            _print_read_results(results, service, args.json_output, _print_symbols)
         elif args.command == "list-files":
             results = service.list_files(
                 repo=args.repo or None,
@@ -298,7 +310,7 @@ def main(argv: list[str] | None = None) -> None:
                 limit=args.limit,
                 lang=args.lang or None,
             )
-            _print_json_or_text(results, args.json_output, _print_list_files)
+            _print_read_results(results, service, args.json_output, _print_list_files)
         elif args.command == "read-file":
             result = service.read_file(
                 repo=args.repo,
