@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import pathspec
@@ -80,6 +81,67 @@ def _translate_pattern(prefix: str, line: str) -> str | None:
     return f"!{translated}" if negated else translated
 
 
+def _resolve_git_dir(directory: Path) -> Path | None:
+    """Return the git directory for a repository rooted at *directory*, if any.
+
+    Linked worktrees and submodules keep a ``gitdir: <path>`` pointer file instead of
+    a ``.git`` directory; shared files such as ``info/exclude`` live in the common git
+    directory that ``commondir`` points to.
+    """
+    dot_git = directory / ".git"
+    if dot_git.is_dir():
+        return dot_git
+    if not dot_git.is_file():
+        return None
+    pointer = dot_git.read_text(errors="ignore").strip()
+    if not pointer.startswith("gitdir:"):
+        return None
+    git_dir = Path(pointer.removeprefix("gitdir:").strip())
+    if not git_dir.is_absolute():
+        git_dir = (directory / git_dir).resolve()
+    commondir = git_dir / "commondir"
+    if commondir.is_file():
+        common = Path(commondir.read_text(errors="ignore").strip())
+        git_dir = common if common.is_absolute() else (git_dir / common).resolve()
+    return git_dir if git_dir.is_dir() else None
+
+
+def _core_excludes_file(directory: Path) -> Path | None:
+    """Resolve ``core.excludesFile`` the way git does.
+
+    Asks ``git config`` so all config levels apply, then falls back to git's built-in
+    default location when the key is unset or git is unavailable.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(directory), "config", "--path", "--get", "core.excludesFile"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        configured = result.stdout.strip() if result.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        configured = ""
+    if configured:
+        return Path(configured)
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", "")
+    if xdg_config_home:
+        return Path(xdg_config_home) / "git" / "ignore"
+    try:
+        return Path.home() / ".config" / "git" / "ignore"
+    except RuntimeError:
+        return None
+
+
+def _git_exclude_files(directory: Path) -> list[Path]:
+    """Repository-level exclude files for *directory*, lowest precedence first."""
+    git_dir = _resolve_git_dir(directory)
+    if git_dir is None:
+        return []
+    candidates = [_core_excludes_file(directory), git_dir / "info" / "exclude"]
+    return [path for path in candidates if path is not None and path.is_file()]
+
+
 class IgnoreMatcher:
     def __init__(self, root: Path, max_file_bytes: int = 1_000_000):
         self.root = Path(root).resolve()
@@ -91,8 +153,11 @@ class IgnoreMatcher:
         for ignore_dir in self._iter_ignore_dirs():
             prefix = ignore_dir.relative_to(self.root).as_posix()
             prefix = "" if prefix == "." else prefix
-            for filename in IGNORE_FILES:
-                ignore_path = ignore_dir / filename
+            # Git excludes come first so a .gitignore in the same directory keeps
+            # higher precedence (the last matching pattern wins).
+            sources = _git_exclude_files(ignore_dir)
+            sources += [ignore_dir / filename for filename in IGNORE_FILES]
+            for ignore_path in sources:
                 if ignore_path.is_file():
                     for raw in ignore_path.read_text(errors="ignore").splitlines():
                         translated = _translate_pattern(prefix, raw)

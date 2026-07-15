@@ -38,3 +38,12 @@ current package metadata is still `0.1.0.dev0`.
 - Positioned the CLI defaults around local coding model usability: human-readable
   output is the default for people at a terminal, while JSON and MCP retrieval payloads
   remain stable for local agents and scripts.
+
+### Fixed
+
+- The ignore engine now honors `.git/info/exclude` and `core.excludesFile` (including
+  git's default `~/.config/git/ignore` location) with the same gitignore semantics as
+  the other ignore files, so repo-local excludes such as worktree directories no longer
+  get indexed as near-duplicate copies that crowd out real results. Linked-worktree
+  `.git` pointer files are resolved to the shared exclude file in the common git
+  directory.
