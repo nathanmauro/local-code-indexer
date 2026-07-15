@@ -144,7 +144,9 @@ When the index is empty, empty read-side output points to
 indexed-repos list for unknown repos. Human output notes when an empty `--lang` or `--kind` filter
 matches no indexed values; JSON output remains unchanged. For `search --mode vector`, empty human
 output also notes when vector search could not run and suggests `--mode lexical` or re-indexing with
-embeddings available.
+embeddings available. Search results whose only signal is a weak vector match are flagged
+`low_confidence: true`; human output marks each flagged result and adds a trailing note when every
+result is flagged, so a query with no good match in the index is not mistaken for real hits.
 
 ## MCP tools
 
@@ -170,6 +172,13 @@ local-code-indexer mcp-config --client codex --db-path /path/to/index.db
 Search blends BM25/FTS5 lexical matching, local vector similarity when embeddings are present, path
 matches, and symbol matches. Results include repo, path, line range, score reason, chunk id, file
 hash, symbols, and snippet text.
+
+Vector nearest-neighbor retrieval always returns something, even for queries that match nothing
+indexed. Each result therefore carries a `vector_similarity` cosine value (`null` when the vector
+signal did not contribute) and a `low_confidence` boolean: `true` when the result's only signal is
+a vector match whose cosine similarity falls below the confidence threshold (default `0.6`,
+tunable via `LOCAL_CODE_INDEXER_LOW_CONFIDENCE_SIMILARITY`). Consumers such as local coding models
+should treat a response where every result is `low_confidence` as "no good match found".
 
 Files are chunked by line windows that snap to tree-sitter definition boundaries: when a window
 would cut a function or class in half, the chunk breaks before it so the next chunk starts at the
@@ -201,6 +210,7 @@ embeddings, breaker-skipped chunks are not counted as `embedding_failures`, and 
 | `LOCAL_CODE_INDEXER_EMBED_MODEL` | `nomic-embed-text` | Embedding model name. |
 | `LOCAL_CODE_INDEXER_EMBED_API` | `ollama` | `ollama` or `openai` for OpenAI-compatible local servers. |
 | `LOCAL_CODE_INDEXER_DISABLE_EMBEDDINGS` | unset | Set to `1`, `true`, `yes`, or `on` for lexical/path/symbol-only indexing and search. |
+| `LOCAL_CODE_INDEXER_LOW_CONFIDENCE_SIMILARITY` | `0.6` | Cosine similarity below which a vector-only search result is flagged `low_confidence: true`. |
 
 The embedding URL must point to a loopback host (`127.0.0.1`, `localhost`, or `::1`) regardless of
 backend. That restriction is part of the fully local design: hosted embedding APIs are rejected

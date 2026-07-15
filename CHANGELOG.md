@@ -32,6 +32,13 @@ current package metadata is still `0.1.0.dev0`.
   CLI users and MCP clients can confirm the installed package version.
 - Added README installation guidance with the `pip install local-code-indexer`
   command and Python version requirement.
+- Added a low-confidence signal for search results so consumers can tell weak
+  vector-only neighbors apart from real matches: every result now carries additive
+  `low_confidence` and `vector_similarity` JSON fields, human CLI output marks
+  flagged results and notes when every result is flagged, and the MCP search tool
+  description tells local models to treat an all-low-confidence response as "no
+  good match found". The cosine threshold defaults to `0.6` and is tunable via
+  `LOCAL_CODE_INDEXER_LOW_CONFIDENCE_SIMILARITY`.
 
 ### Changed
 
