@@ -35,6 +35,9 @@ current package metadata is still `0.1.0.dev0`.
 
 ### Changed
 
+- Corrected README installation instructions to install from GitHub
+  (`pip install git+...` or `uv tool install git+...`), since the package is not yet
+  published to PyPI.
 - Positioned the CLI defaults around local coding model usability: human-readable
   output is the default for people at a terminal, while JSON and MCP retrieval payloads
   remain stable for local agents and scripts.
