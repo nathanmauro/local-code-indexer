@@ -221,7 +221,11 @@ JSON cosine scan.
 ## Ignore rules
 
 `.gitignore`, `.augmentignore`, and `.indexignore` are honored at every directory level, with nested
-patterns scoped to their directory using gitignore semantics. Hard-skipped regardless of ignore
+patterns scoped to their directory using gitignore semantics. Wherever a `.git` is present, the
+repo-local `.git/info/exclude` and the global `core.excludesFile` (or git's default
+`~/.config/git/ignore` when unset) are honored with the same semantics, at lower precedence than a
+`.gitignore` in the same directory; linked worktrees with a `.git` pointer file resolve to the
+shared exclude file in the common git directory. Hard-skipped regardless of ignore
 files: symlinks, dependency/build/cache directories (`node_modules`, `.venv`, `dist`, `.cache`,
 ...), lockfiles (`uv.lock`, `package-lock.json`, ...), secret-shaped files (`.env`, `.env.*`,
 `.envrc`, private-key names, `.netrc`, key/cert suffixes, ...), binaries, and files over 1 MB.

@@ -1,4 +1,7 @@
+import shutil
 from pathlib import Path
+
+import pytest
 
 from local_code_indexer.ignore import IgnoreMatcher
 from local_code_indexer.scanner import iter_indexable_files
@@ -10,6 +13,17 @@ def write(path: Path, data: bytes | str) -> None:
         path.write_bytes(data)
     else:
         path.write_text(data)
+
+
+def isolate_git_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Keep the developer's real git config and global excludes out of the test."""
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home / ".gitconfig"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    return home
 
 
 def test_ignore_matcher_honors_repo_ignores_and_hard_skips(tmp_path: Path) -> None:
@@ -100,3 +114,108 @@ def test_nested_ignore_files_are_honored(tmp_path: Path) -> None:
     assert not matcher.is_indexable(tmp_path / "src/deep/generated.py")
     assert not matcher.is_indexable(tmp_path / "src/local-only.py")
     assert matcher.is_indexable(tmp_path / "src/deep/local-only.py")
+
+
+def test_git_info_exclude_is_honored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    isolate_git_env(monkeypatch, tmp_path)
+    repo = tmp_path / "repo"
+    write(repo / ".git/info/exclude", "/.worktrees/\nscratch.txt\n")
+    write(repo / "src/app.py", "def run():\n    return 'ok'\n")
+    write(repo / ".worktrees/wt1/src/app.py", "def run():\n    return 'duplicate'\n")
+    write(repo / "scratch.txt", "local scratch")
+    write(repo / "sub/scratch.txt", "local scratch")
+
+    matcher = IgnoreMatcher(repo)
+
+    assert matcher.is_indexable(repo / "src/app.py")
+    assert not matcher.is_indexable(repo / ".worktrees/wt1/src/app.py")
+    assert not matcher.is_indexable(repo / "scratch.txt")
+    assert not matcher.is_indexable(repo / "sub/scratch.txt")
+    assert list(iter_indexable_files(repo, matcher)) == [repo / "src/app.py"]
+
+
+def test_git_info_exclude_yields_to_gitignore_negation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    isolate_git_env(monkeypatch, tmp_path)
+    write(tmp_path / ".git/info/exclude", "*.log\n")
+    write(tmp_path / ".gitignore", "!keep.log\n")
+    write(tmp_path / "keep.log", "kept by gitignore negation")
+    write(tmp_path / "other.log", "ignored by info/exclude")
+
+    matcher = IgnoreMatcher(tmp_path)
+
+    assert matcher.is_indexable(tmp_path / "keep.log")
+    assert not matcher.is_indexable(tmp_path / "other.log")
+
+
+def test_nested_repo_info_exclude_is_scoped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    isolate_git_env(monkeypatch, tmp_path)
+    write(tmp_path / "vendor/repo/.git/info/exclude", "generated.py\n")
+    write(tmp_path / "vendor/repo/generated.py", "x = 1\n")
+    write(tmp_path / "vendor/repo/deep/generated.py", "x = 1\n")
+    write(tmp_path / "generated.py", "x = 1\n")
+
+    matcher = IgnoreMatcher(tmp_path)
+
+    assert not matcher.is_indexable(tmp_path / "vendor/repo/generated.py")
+    assert not matcher.is_indexable(tmp_path / "vendor/repo/deep/generated.py")
+    assert matcher.is_indexable(tmp_path / "generated.py")
+
+
+def test_worktree_gitdir_pointer_resolves_shared_exclude(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    isolate_git_env(monkeypatch, tmp_path)
+    main = tmp_path / "main"
+    write(main / ".git/info/exclude", "*.tmp\n")
+    write(main / ".git/worktrees/wt/commondir", "../..\n")
+    worktree = tmp_path / "wt"
+    write(worktree / ".git", f"gitdir: {main / '.git/worktrees/wt'}\n")
+    write(worktree / "app.py", "def run():\n    return 'ok'\n")
+    write(worktree / "junk.tmp", "excluded by the shared info/exclude")
+
+    matcher = IgnoreMatcher(worktree)
+
+    assert matcher.is_indexable(worktree / "app.py")
+    assert not matcher.is_indexable(worktree / "junk.tmp")
+
+
+def test_default_global_excludes_apply_only_inside_repos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = isolate_git_env(monkeypatch, tmp_path)
+    write(home / ".config/git/ignore", "*.scratch\n")
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+    write(repo / "notes.scratch", "excluded by the default global ignore file")
+    plain = tmp_path / "plain"
+    write(plain / "notes.scratch", "not a repo, so global excludes do not apply")
+
+    matcher = IgnoreMatcher(repo)
+
+    assert matcher.is_indexable(repo / "app.py")
+    assert not matcher.is_indexable(repo / "notes.scratch")
+    assert IgnoreMatcher(plain).is_indexable(plain / "notes.scratch")
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires git to resolve config")
+def test_configured_core_excludes_file_is_honored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = isolate_git_env(monkeypatch, tmp_path)
+    excludes = home / "global-excludes"
+    write(excludes, "*.bak\n")
+    write(home / ".gitconfig", f"[core]\n\texcludesFile = {excludes}\n")
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    write(repo / "app.py", "def run():\n    return 'ok'\n")
+    write(repo / "old.bak", "excluded by core.excludesFile")
+
+    matcher = IgnoreMatcher(repo)
+
+    assert matcher.is_indexable(repo / "app.py")
+    assert not matcher.is_indexable(repo / "old.bak")
