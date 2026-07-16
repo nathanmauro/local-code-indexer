@@ -18,7 +18,7 @@ def test_ga_readiness_docs_exist_and_have_expected_structure() -> None:
     contributing_text = contributing.read_text(encoding="utf-8")
 
     assert "## Installation" in readme_text
-    assert "pip install local-code-indexer" in readme_text
+    assert "pip install git+https://github.com/nathanmauro/local-code-indexer" in readme_text
     assert len(changelog_text) > 200
     assert len(contributing_text) > 200
     assert "## [Unreleased]" in changelog_text or "## [" in changelog_text

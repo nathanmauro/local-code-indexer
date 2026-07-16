@@ -35,10 +35,16 @@ sequenceDiagram
 
 ## Installation
 
-Install the CLI package with pip; Python 3.11 or newer is required.
+The package is not yet published to PyPI. Install the CLI straight from GitHub; Python 3.11 or newer is required.
 
 ```bash
-pip install local-code-indexer
+pip install git+https://github.com/nathanmauro/local-code-indexer
+```
+
+Or install it as an isolated tool with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install git+https://github.com/nathanmauro/local-code-indexer
 ```
 
 ## Local-model quickstart
