@@ -899,6 +899,7 @@ def test_json_flag_preserves_search_json_shape(tmp_path: Path, capsys: pytest.Ca
             "file_hash": results[0]["file_hash"],
             "language": "py",
             "line_range": "1-2",
+            "low_confidence": False,
             "path": "app.py",
             "repo": "demo",
             "score": results[0]["score"],
@@ -906,6 +907,7 @@ def test_json_flag_preserves_search_json_shape(tmp_path: Path, capsys: pytest.Ca
             "snippet": "def login(token):\n    return token",
             "start_line": 1,
             "symbols": ["login"],
+            "vector_similarity": None,
         }
     ]
 
@@ -923,3 +925,76 @@ def test_json_flag_is_global_before_subcommand(tmp_path: Path, capsys: pytest.Ca
 
     assert results[0]["repo"] == "demo"
     assert results[0]["path"] == "app.py"
+
+
+class _LowConfidenceFakeEmbedder:
+    dim = 4
+
+    def embed(self, text: str) -> list[float]:
+        lowered = text.lower()
+        return [
+            1.0 if any(term in lowered for term in ("auth", "login")) else 0.0,
+            1.0 if any(term in lowered for term in ("schedule", "calendar", "meeting")) else 0.0,
+            0.0,
+            0.5,
+        ]
+
+
+def test_search_human_output_marks_low_confidence_results(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import local_code_indexer.cli as cli_module
+    from local_code_indexer.service import IndexService
+
+    monkeypatch.setattr(
+        cli_module,
+        "IndexService",
+        lambda db_path: IndexService(db_path, embedder=_LowConfidenceFakeEmbedder()),
+    )
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "auth.py").write_text("def login(secret):\n    return secret\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "zzzz_nonexistent_gibberish_9999", "--repo", "demo"])
+    weak_output = capsys.readouterr().out
+    assert "low_confidence: true" in weak_output
+    assert "note: every result is a low-confidence vector-only match" in weak_output
+
+    main(["search", "auth login", "--repo", "demo"])
+    confident_output = capsys.readouterr().out
+    assert confident_output.strip()
+    assert "low_confidence" not in confident_output
+    assert "note:" not in confident_output
+
+
+def test_search_json_output_flags_low_confidence_results(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import local_code_indexer.cli as cli_module
+    from local_code_indexer.service import IndexService
+
+    monkeypatch.setattr(
+        cli_module,
+        "IndexService",
+        lambda db_path: IndexService(db_path, embedder=_LowConfidenceFakeEmbedder()),
+    )
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "auth.py").write_text("def login(secret):\n    return secret\n")
+
+    main(["index", str(repo), "--name", "demo", "--json"])
+    capsys.readouterr()
+
+    main(["search", "zzzz_nonexistent_gibberish_9999", "--repo", "demo", "--json"])
+    results = json.loads(capsys.readouterr().out)
+
+    assert results
+    assert all(result["low_confidence"] is True for result in results)
+    assert all(result["vector_similarity"] is not None for result in results)

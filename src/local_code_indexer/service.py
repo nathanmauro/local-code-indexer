@@ -908,7 +908,8 @@ class IndexService:
             if lang_filter is not None:
                 rows = [item for item in rows if _path_language(item["path"]).lower() == lang_filter]
             rows = sorted(rows, key=lambda item: item["score"], reverse=True)[:limit]
-            return [self._format_search_result(row) for row in rows]
+            low_confidence_threshold = config.low_confidence_similarity_from_env()
+            return [self._format_search_result(row, low_confidence_threshold) for row in rows]
 
     def _embedded_chunk_count(
         self,
@@ -1044,6 +1045,7 @@ class IndexService:
             "embedding_json": row["embedding_json"],
             "score": 0.0,
             "reasons": [],
+            "vector_similarity": None,
         }
 
     def _candidate(self, candidates: dict[str, dict[str, Any]], row: sqlite3.Row) -> dict[str, Any]:
@@ -1140,6 +1142,12 @@ class IndexService:
                     score = 3.0 / (1.0 + float(row["distance"]))
                     candidate["score"] += score
                     candidate["reasons"].append("vector")
+                    # Cosine against the stored embedding gives a backend-independent
+                    # confidence scale; vec0 distance is L2 and not comparable.
+                    self._record_vector_similarity(
+                        candidate,
+                        self._stored_embedding_similarity(query_embedding, row["embedding_json"]),
+                    )
                 return "sqlite-vec"
             except sqlite3.OperationalError:
                 pass
@@ -1156,7 +1164,28 @@ class IndexService:
             candidate = self._candidate(candidates, row)
             candidate["score"] += similarity * 3.0
             candidate["reasons"].append("vector")
+            self._record_vector_similarity(candidate, similarity)
         return "json-fallback"
+
+    def _stored_embedding_similarity(
+        self, query_embedding: list[float], embedding_json: str
+    ) -> float | None:
+        if not embedding_json:
+            return None
+        try:
+            stored = json.loads(embedding_json)
+            return _cosine(query_embedding, [float(value) for value in stored])
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+
+    def _record_vector_similarity(
+        self, candidate: dict[str, Any], similarity: float | None
+    ) -> None:
+        if similarity is None:
+            return
+        existing = candidate.get("vector_similarity")
+        if existing is None or similarity > existing:
+            candidate["vector_similarity"] = similarity
 
     def _add_path_symbol_scores(
         self,
@@ -1197,11 +1226,18 @@ class IndexService:
                     candidate["score"] += symbol_score
                     candidate["reasons"].append("symbol")
 
-    def _format_search_result(self, row: dict[str, Any]) -> dict:
+    def _format_search_result(self, row: dict[str, Any], low_confidence_threshold: float) -> dict:
         reasons = []
         for reason in row["reasons"]:
             if reason not in reasons:
                 reasons.append(reason)
+        vector_similarity = row.get("vector_similarity")
+        # A result whose only signal is a weak vector neighbor is likely noise:
+        # nearest-neighbor retrieval always returns something, even for queries
+        # that match nothing indexed.
+        low_confidence = reasons == ["vector"] and (
+            vector_similarity is None or vector_similarity < low_confidence_threshold
+        )
         return {
             "repo": row["repo"],
             "path": row["path"],
@@ -1211,6 +1247,10 @@ class IndexService:
             "end_line": row["end_line"],
             "score": round(float(row["score"]), 4),
             "score_reason": "+".join(reasons) if reasons else "unknown",
+            "low_confidence": low_confidence,
+            "vector_similarity": (
+                round(float(vector_similarity), 4) if vector_similarity is not None else None
+            ),
             "chunk_id": row["chunk_id"],
             "file_hash": row["file_hash"],
             "symbols": row["symbols"],

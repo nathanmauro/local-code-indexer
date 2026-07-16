@@ -43,7 +43,12 @@ async def code_index_search(
     lang: str = "",
     kind: str = "",
 ) -> str:
-    """Search indexed code chunks by lexical, vector, path, symbol, and symbol-kind signals."""
+    """Search indexed code chunks by lexical, vector, path, symbol, and symbol-kind signals.
+
+    Results with low_confidence=true matched only weakly on vector similarity and are
+    likely irrelevant; treat a response where every result is low_confidence as
+    "no good match found".
+    """
     return await _run(
         lambda: _json(
             _service().search(

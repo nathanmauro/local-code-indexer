@@ -1056,3 +1056,100 @@ def test_disabled_embeddings_report_not_degraded(tmp_path: Path, monkeypatch: py
 
     assert result["degraded"] is False
     assert service.status()["degraded"] is False
+
+
+def test_nonsense_query_flags_vector_only_results_as_low_confidence(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(
+        repo / "src/auth.py",
+        "class AuthService:\n    def login(self, token):\n        return token.strip()\n",
+    )
+    write(
+        repo / "src/calendar.py",
+        "def schedule_meeting(title):\n    return title.lower()\n",
+    )
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    results = service.search("zzzz_nonexistent_gibberish_9999", repo="demo", limit=10)
+
+    assert results
+    for result in results:
+        assert result["score_reason"] == "vector"
+        assert result["low_confidence"] is True
+        assert result["vector_similarity"] is not None
+        assert result["vector_similarity"] < 0.6
+
+
+def test_confident_vector_only_match_is_not_flagged_low_confidence(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/planner.py", "class MeetingPlanner:\n    pass\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    results = service.search("calendar sync", repo="demo", limit=5)
+
+    assert results
+    top = results[0]
+    assert top["score_reason"] == "vector"
+    assert top["low_confidence"] is False
+    assert top["vector_similarity"] == pytest.approx(1.0)
+
+
+def test_weak_vector_with_other_signals_is_not_flagged_low_confidence(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    write(repo / "src/planner.py", "class MeetingPlanner:\n    pass\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    results = service.search("planner", repo="demo", limit=5)
+
+    assert results
+    top = results[0]
+    assert "path" in top["score_reason"]
+    assert top["low_confidence"] is False
+    assert top["vector_similarity"] is not None
+    assert top["vector_similarity"] < 0.6
+
+
+def test_low_confidence_threshold_is_env_configurable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCAL_CODE_INDEXER_LOW_CONFIDENCE_SIMILARITY", "0.3")
+    repo = tmp_path / "repo"
+    write(repo / "src/auth.py", "def login(token):\n    return token\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    results = service.search("zzzz_nonexistent_gibberish_9999", repo="demo", limit=10)
+
+    assert results
+    assert all(result["score_reason"] == "vector" for result in results)
+    assert all(result["low_confidence"] is False for result in results)
+
+
+def test_low_confidence_flag_applies_on_json_fallback_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(service_module, "sqlite_vec", None)
+    repo = tmp_path / "repo"
+    write(repo / "src/auth.py", "def login(token):\n    return token\n")
+
+    service = IndexService(tmp_path / "index.db", embedder=FakeEmbedder())
+    service.init()
+    service.index_repo(repo, name="demo")
+
+    results = service.search("zzzz_nonexistent_gibberish_9999", repo="demo", mode="vector")
+
+    assert service.last_vector_backend == "json-fallback"
+    assert results
+    assert all(result["low_confidence"] is True for result in results)
+    assert all(result["vector_similarity"] is not None for result in results)

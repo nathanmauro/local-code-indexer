@@ -99,6 +99,7 @@ async def test_mcp_search_accepts_kind_filter(
             tools = await session.list_tools()
             search_tool = next(tool for tool in tools.tools if tool.name == "code_index_search")
             assert "kind" in search_tool.inputSchema["properties"]
+            assert "low_confidence" in (search_tool.description or "")
 
             result = await session.call_tool(
                 "code_index_search",
@@ -106,6 +107,8 @@ async def test_mcp_search_accepts_kind_filter(
             )
             payload = json.loads(result.content[0].text)
             assert [item["path"] for item in payload] == ["src/model.py"]
+            assert all("low_confidence" in item for item in payload)
+            assert all("vector_similarity" in item for item in payload)
 
             result = await session.call_tool(
                 "code_index_search",

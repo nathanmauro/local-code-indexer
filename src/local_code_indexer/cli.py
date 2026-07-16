@@ -116,17 +116,25 @@ def _print_search(results: list[dict]) -> None:
     blocks = []
     for result in results:
         symbols = ", ".join(result.get("symbols") or []) or "(none)"
+        score_line = f"score: {result['score']}  score_reason: {result['score_reason']}"
+        if result.get("low_confidence"):
+            score_line += "  low_confidence: true"
         blocks.append(
             "\n".join(
                 [
                     f"{result['repo']} {result['path']}:{result['start_line']}-{result['end_line']}",
-                    f"score: {result['score']}  score_reason: {result['score_reason']}",
+                    score_line,
                     f"symbols: {symbols}",
                     result.get("snippet", ""),
                 ]
             )
         )
     print("\n\n".join(blocks))
+    if all(result.get("low_confidence") for result in results):
+        print(
+            "\nnote: every result is a low-confidence vector-only match; "
+            "the query may have no good match in the index."
+        )
 
 
 def _print_symbols(rows: list[dict]) -> None:
